@@ -18,9 +18,18 @@
     <issueHandlers>
         <InternalMethod>
             <errorLevel type="suppress">
+                <referencedMethod name="Psalm\Internal\Codebase\Functions::getStorage" />
+                <referencedMethod name="Psalm\Internal\Codebase\Functions::hasStubbedFunction" />
                 <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::get" />
                 <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::has" />
+                <referencedMethod name="Psalm\Internal\Provider\FileProvider::getContents" />
+                <referencedMethod name="Psalm\Internal\Provider\FunctionParamsProvider::registerClosure" />
             </errorLevel>
         </InternalMethod>
+        <InternalProperty>
+            <errorLevel type="suppress">
+                <referencedProperty name="Psalm\Internal\Codebase\Functions::$params_provider" />
+            </errorLevel>
+        </InternalProperty>
     </issueHandlers>
 </psalm>

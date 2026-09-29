@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<psalm
+    errorLevel="1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="https://getpsalm.org/schema/config"
+>
+    <projectFiles>
+        <directory name="tests" />
+    </projectFiles>
+    <plugins>
+        <pluginClass class="AliesDev\PsalmPluginPest\Plugin" />
+    </plugins>
+    <issueHandlers>
+        <PropertyNotSetInConstructor errorLevel="suppress" />
+        <UnusedClass errorLevel="suppress" />
+        <ClassMustBeFinal errorLevel="suppress" />
+    </issueHandlers>
+</psalm>
