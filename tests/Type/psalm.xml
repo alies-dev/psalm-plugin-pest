@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<psalm
+    disableSuppressAll="true"
+    ensureArrayStringOffsetsExist="true"
+    errorLevel="1"
+    findUnusedBaselineEntry="true"
+    findUnusedPsalmSuppress="true"
+    findUnusedVariablesAndParams="true"
+    memoizeMethodCallResults="true"
+    reportMixedIssues="true"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="https://getpsalm.org/schema/config"
+    xsi:schemaLocation="https://getpsalm.org/schema/config ../../vendor/vimeo/psalm/config.xsd"
+>
+    <!-- Pest itself is a dev dependency: its src/Functions.php is a Composer autoload file, so
+         Psalm scans the real test()/it()/uses()/pest() declarations and the real DSL classes. -->
+    <plugins>
+        <pluginClass class="AliesDev\PsalmPluginPest\Plugin" />
+    </plugins>
+</psalm>

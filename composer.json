@@ -1,0 +1,86 @@
+{
+    "name": "alies-dev/psalm-plugin-pest",
+    "description": "Psalm plugin for Pest: types $this in test closures as the configured TestCase and accepts Pest's public API.",
+    "license": "MIT",
+    "type": "psalm-plugin",
+    "keywords": [
+        "psalm",
+        "psalm-plugin",
+        "pest",
+        "static-analysis",
+        "dev"
+    ],
+    "authors": [
+        {
+            "name": "Alies Lapatsin",
+            "email": "github@alies.dev"
+        }
+    ],
+    "homepage": "https://github.com/alies-dev/psalm-plugin-pest",
+    "require": {
+        "php": "^8.3",
+        "nikic/php-parser": "^5.0",
+        "vimeo/psalm": "^6.19 || ^7.0"
+    },
+    "require-dev": {
+        "alies-dev/psalm-tester": "dev-feature/parallel-batch",
+        "friendsofphp/php-cs-fixer": "^3.94",
+        "pestphp/pest": "^4.0",
+        "phpunit/phpunit": "^12.5",
+        "rector/rector": "^2.5",
+        "symfony/filesystem": "^7.4 || ^8.0",
+        "symfony/process": "^7.4 || ^8.0"
+    },
+    "suggest": {
+        "pestphp/pest": "The test framework this plugin models. Without it installed the plugin is inert."
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/alies-dev/psalm-tester"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "AliesDev\\PsalmPluginPest\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\AliesDev\\PsalmPluginPest\\": "tests"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "extra": {
+        "psalm": {
+            "pluginClass": "AliesDev\\PsalmPluginPest\\Plugin"
+        }
+    },
+    "scripts": {
+        "cs": "php-cs-fixer fix --no-interaction",
+        "cs:check": "php-cs-fixer fix --dry-run --diff --no-interaction",
+        "psalm": "psalm --no-progress",
+        "rector": "rector",
+        "test": [
+            "@cs:check",
+            "@psalm",
+            "@test:unit",
+            "@test:type"
+        ],
+        "test:type": [
+            "Composer\\Config::disableProcessTimeout",
+            "phpunit --testsuite=type"
+        ],
+        "test:unit": [
+            "Composer\\Config::disableProcessTimeout",
+            "phpunit --testsuite=unit"
+        ]
+    }
+}
