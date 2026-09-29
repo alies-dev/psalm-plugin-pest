@@ -12,4 +12,15 @@
     <projectFiles>
         <directory name="src" />
     </projectFiles>
+
+    <!-- Psalm exposes function and class storage only through its @internal providers. This list is
+         the plugin's whole dependency on Psalm internals: review it on every Psalm major. -->
+    <issueHandlers>
+        <InternalMethod>
+            <errorLevel type="suppress">
+                <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::get" />
+                <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::has" />
+            </errorLevel>
+        </InternalMethod>
+    </issueHandlers>
 </psalm>
