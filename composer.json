@@ -23,7 +23,7 @@
         "vimeo/psalm": "^6.19 || ^7.0"
     },
     "require-dev": {
-        "alies-dev/psalm-tester": "dev-feature/parallel-batch",
+        "alies-dev/psalm-tester": "^0.4",
         "friendsofphp/php-cs-fixer": "^3.94",
         "pestphp/pest": "^4.0",
         "phpunit/phpunit": "^12.5",
@@ -34,13 +34,7 @@
     "suggest": {
         "pestphp/pest": "The test framework this plugin models. Without it installed the plugin is inert."
     },
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/alies-dev/psalm-tester"
-        }
-    ],
-    "minimum-stability": "dev",
+    "minimum-stability": "beta",
     "prefer-stable": true,
     "autoload": {
         "psr-4": {
