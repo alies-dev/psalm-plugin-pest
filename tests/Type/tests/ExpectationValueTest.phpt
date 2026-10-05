@@ -2,6 +2,16 @@
 <?php declare(strict_types=1);
 
 namespace PestExpectationValueFixture {
+    /** @psalm-seal-methods */
+    final class Magic
+    {
+        /** @psalm-pure */
+        public function __call(string $_name, array $_args): mixed
+        {
+            return null;
+        }
+    }
+
     final class User
     {
         public string $name = 'x';
@@ -85,6 +95,26 @@ namespace PestExpectationValueFixture {
         $_callable = expect($intOrString)->toBeInt(...);
         $_callable();
     }
+
+    /** @param list<User> $users */
+    function iteration(array $users, mixed $anything): void
+    {
+        // The callbacks get an expectation of an item, not of the whole list: no member lookup on the list.
+        expect($users)->each(function ($user) {
+            /** @psalm-check-type-exact $user = \Pest\Expectation<mixed> */
+            $user->name->toBe('x');
+        });
+        expect($users)->sequence(function ($user) {
+            $user->getName()->toBe('x');
+        });
+        expect($anything)->each(fn ($item) => $item->toBeInt());
+    }
+
+    function failed(Magic $magic): void
+    {
+        // A `never` value is a failure Psalm already reported, not one to report again.
+        expect($magic->unknownMethod())->not->toBeNull()->provider()->toBe('x');
+    }
 }
 ?>
 --EXPECTF--
@@ -92,3 +122,5 @@ UndefinedMagicMethod on line %d: Magic method PestExpectationValueFixture\User::
 UndefinedMagicMethod on line %d: Magic method string::tobeintt does not exist
 InvalidScalarArgument on line %d: Argument 1 of Pest\Expectation::add expects int, but 'x' provided
 TooFewArguments on line %d: Too few arguments for Pest\Expectation::add - expecting _n to be passed
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+UndefinedMagicMethod on line %d: Magic method PestExpectationValueFixture\Magic::unknownmethod does not exist
