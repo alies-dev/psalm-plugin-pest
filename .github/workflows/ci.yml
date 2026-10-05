@@ -25,7 +25,8 @@ jobs:
       matrix:
         # Lowest and highest supported PHP only; 8.4 adds runner time, not coverage.
         php: ['8.3', '8.5']
-        psalm: ['^6.19', '^7.0.0-rc1', 'dev-master']
+        # ^7.0.0-rc1 resolves to the newest 7.x, RCs included until 7.0.0 is stable.
+        psalm: ['^6.19', '^7.0.0-rc1']
         pest: ['^4.0', '^5.0']
         exclude:
           # Pest 5 requires PHP 8.4.
