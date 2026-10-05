@@ -18,6 +18,7 @@
     <issueHandlers>
         <InternalMethod>
             <errorLevel type="suppress">
+                <referencedMethod name="Psalm\Internal\Analyzer\StatementsAnalyzer::getNodeTypeProvider" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::getStorage" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::hasStubbedFunction" />
                 <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::get" />
@@ -25,6 +26,7 @@
                 <referencedMethod name="Psalm\Internal\Provider\FileProvider::getContents" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionParamsProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionReturnTypeProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\NodeDataProvider::getType" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyTypeProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyVisibilityProvider::registerClosure" />

@@ -21,6 +21,7 @@ final class Plugin implements PluginEntryPointInterface
         ClosureThisHandler::class,
         CurrentTestHandler::class,
         BeforeEachPropertiesHandler::class,
+        ExpectNarrowingHandler::class,
     ];
 
     #[\Override]
