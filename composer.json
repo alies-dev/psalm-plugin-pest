@@ -1,6 +1,6 @@
 {
     "name": "alies-dev/psalm-plugin-pest",
-    "description": "Psalm plugin for Pest: types $this in test closures as the configured TestCase and accepts Pest's public API.",
+    "description": "Psalm plugin for Pest: types $this in test closures as the configured TestCase, resolves expectation chains, narrows types after expect() and accepts Pest's public API.",
     "license": "MIT",
     "type": "psalm-plugin",
     "keywords": [
