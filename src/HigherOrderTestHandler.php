@@ -23,7 +23,7 @@ use Psalm\Type\Union;
 /**
  * Resolves Pest's higher-order tests, `it('x')->actingAsAdmin()->group('g')`: `TestCall::__call()`
  * records the call and returns the `TestCall`; Pest later replays the recorded calls on the file's
- * bound TestCase (or one of its bound traits), each on the previous call's non-null result.
+ * bound TestCase (or its bound traits, exposed on it), each on the previous call's non-null result.
  * `->expect()` / `->and()` start an `Expectation` of `mixed`. Other names keep Psalm's
  * `UndefinedMagicMethod`.
  */
@@ -107,7 +107,7 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
 
     /**
      * The `Class::method` id `TestCall::__call()` ends up running for `$name` (a non-private method
-     * of any part of the `$target` object), or null when `TestCall` declares `$name` itself or
+     * of the `$target` object), or null when `TestCall` declares `$name` itself or
      * nothing it forwards to has it.
      *
      * @psalm-mutation-free
@@ -123,12 +123,10 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
         }
 
         foreach ($target?->getAtomicTypes() ?? [] as $type) {
-            foreach ($type instanceof TNamedObject ? [$type->value, ...\array_keys($type->extra_types)] : [] as $part) {
-                $declaring = BoundTestCase::storage($codebase, $part)?->declaring_method_ids[$name] ?? null;
-                $visibility = $declaring === null ? null : BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$name]->visibility ?? null;
-                if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
-                    return $declaring->fq_class_name . '::' . $name;
-                }
+            $declaring = $type instanceof TNamedObject ? BoundTestCase::storage($codebase, $type->value)?->declaring_method_ids[$name] ?? null : null;
+            $visibility = $declaring === null ? null : BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$name]->visibility ?? null;
+            if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
+                return $declaring->fq_class_name . '::' . $name;
             }
         }
 

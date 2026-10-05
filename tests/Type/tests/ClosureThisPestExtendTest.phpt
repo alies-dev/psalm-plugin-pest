@@ -13,11 +13,11 @@ namespace PestExtendFixture {
 }
 
 namespace {
-    // pest()->extend() in a test file targets that file; its traits join `$this` as an intersection.
+    // pest()->extend() in a test file targets that file; its traits' methods resolve on the plain class.
     pest()->extend(PestExtendFixture\TestCase::class, PestExtendFixture\InteractsWithFoo::class);
 
     test('binds $this to the pest()->extend() class', function (): void {
-        /** @psalm-check-type-exact $this = PestExtendFixture\TestCase&PestExtendFixture\InteractsWithFoo */
+        /** @psalm-check-type-exact $this = PestExtendFixture\TestCase */
         $_counter = $this->counter;
         /** @psalm-check-type-exact $_counter = int */
     });

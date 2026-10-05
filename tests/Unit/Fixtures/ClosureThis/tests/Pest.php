@@ -13,6 +13,7 @@ pest()
     ->beforeEach(fn() => $this->shared = new User())
     ->beforeEach(function (): void {
         $_id = $this->signIn();
+        $_user = $this->seed()->createUser();
         /** @var User|null */
         $this->maybe = null;
     })

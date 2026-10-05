@@ -19,10 +19,26 @@ namespace PestTraitsFixture {
         {
             return new User();
         }
+
+        public function seed(): static
+        {
+            return $this;
+        }
     }
 
     abstract class TestCase extends \PHPUnit\Framework\TestCase
     {
+        /** @psalm-mutation-free */
+        public function from(string $_url): static
+        {
+            return $this;
+        }
+
+        /** @psalm-pure */
+        public function get(string $_url): int
+        {
+            return 200;
+        }
     }
 
     /** @psalm-pure */
@@ -33,7 +49,7 @@ namespace PestTraitsFixture {
 }
 
 namespace {
-    // Traits next to the class: their members resolve on `$this`, which stays the TestCase.
+    // Traits next to the class: their members resolve on `$this`, which is the plain TestCase.
     uses(PestTraitsFixture\TestCase::class, PestTraitsFixture\CreatesUsers::class);
 
     test('binds the traits', function (): void {
@@ -45,6 +61,14 @@ namespace {
         $_helped = $this->helper();
         /** @psalm-check-type-exact $_helped = int */
         $this->createdUsers = 'wrong';
+        // A `static` return, from the TestCase or the trait, keeps the TestCase: no trait in an intersection to report.
+        $_status = $this->from('/a')->seed()->get('/');
+        /** @psalm-check-type-exact $_status = int */
+        $_next = $this->seed();
+        /** @psalm-check-type-exact $_next = PestTraitsFixture\TestCase&static */
+        $_via = test()->createUser();
+        /** @psalm-check-type-exact $_via = PestTraitsFixture\User */
+        $this->nope();
         $this->assertTrue(true);
         $_class = PestTraitsFixture\needsTestCase($this);
         /** @psalm-check-type-exact $_class = string */
@@ -64,3 +88,4 @@ namespace {
 ?>
 --EXPECTF--
 InvalidPropertyAssignmentValue on line %d: $this->createdUsers with declared type 'int' cannot be assigned type ''wrong''
+UndefinedMethod on line %d: Method PestTraitsFixture\TestCase::nope does not exist

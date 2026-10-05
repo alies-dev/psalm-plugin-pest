@@ -20,7 +20,6 @@ use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\AfterFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
-use Psalm\Plugin\EventHandler\Event\MethodVisibilityProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyTypeProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyVisibilityProviderEvent;
@@ -130,21 +129,6 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         $file = $event->getFileStorage()->file_path;
         self::$outer[] = [self::$assignments, self::$statics, self::$types, self::$declared];
 
-        // A trait bound to this file keeps its protected members reachable from the tests.
-        $visibility = $codebase->methods->visibility_provider;
-        foreach (BoundTestCase::traits($codebase, $file) as $trait) {
-            if (!$visibility->has($trait)) {
-                $visibility->registerClosure(
-                    $trait,
-                    static fn(MethodVisibilityProviderEvent $event): ?bool => \in_array(
-                        $event->getFqClasslikeName(),
-                        BoundTestCase::traits($codebase, $event->getSource()->getFilePath()),
-                        true,
-                    ) ? true : null,
-                );
-            }
-        }
-
         // Pest.php hooks that target this file seed the types, so they union with its own assignments.
         self::$declared = BoundTestCase::traitProperties($codebase, $file);
         self::$types = \array_replace(self::$declared, BoundTestCase::properties($codebase, $file));
@@ -184,6 +168,9 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     public static function afterAnalyzeFile(AfterFileAnalysisEvent $event): void
     {
         [self::$assignments, self::$statics, self::$types, self::$declared] = \array_pop(self::$outer) ?? [[], [], [], []];
+        if (self::$outer === []) {
+            BoundTestCase::restore();
+        }
     }
 
     /**
