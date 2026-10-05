@@ -35,4 +35,4 @@ namespace {
 }
 ?>
 --EXPECTF--
-InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure[impure], but 'not a closure' provided
+InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure%S, but 'not a closure' provided
