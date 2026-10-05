@@ -11,6 +11,7 @@ Makes [Psalm](https://psalm.dev) understand [Pest](https://pestphp.com) test fil
 - **Traits.** `uses(TestCase::class, SomeTrait::class)` and `pest()->extend(TestCase::class)->use(SomeTrait::class)->in(...)` make the trait's methods and properties available on `$this`.
 - **More bound closures.** `$this` is also bound in `->with(function () { ... })` dataset closures and in the closures passed to `->beforeEach()` / `->afterEach()` on a `uses()` / `pest()` chain.
 - **Higher-order tests.** `it('logs in')->actingAsAdmin()` resolves the method on the bound TestCase, checks its arguments and returns the `TestCall`, so `->with()`, `->group()`, `->expect()` and `->and()` keep chaining.
+- **`beforeAll()` / `afterAll()` in `describe()`.** Pest throws while loading a file that calls either inside a `describe()` block, so the plugin reports `PestHookInDescribe` (use `beforeEach()` / `afterEach()`). Calls nested in `if` or `foreach` count; calls inside a nested closure such as a test body do not, and a nested `describe()` is reported on its own.
 
 ## Installation
 

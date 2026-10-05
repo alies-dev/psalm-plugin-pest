@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Report `beforeAll()` / `afterAll()` inside `describe()` as `PestHookInDescribe`: Pest throws while loading the file ([#13](https://github.com/alies-dev/psalm-plugin-pest/issues/13)).
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
