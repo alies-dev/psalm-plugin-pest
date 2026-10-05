@@ -15,6 +15,8 @@ namespace AliesDev\PsalmPluginPest;
  * `null` means "unknown": the handler then keeps Pest's own `@param-closure-this TestCall`.
  * PHPUnit's default is only claimed inside the test directory those files govern (a monorepo
  * package's own tests may have their own `Pest.php`).
+ *
+ * @psalm-import-type PestUsesEntry from UsesParser
  */
 final class TestCaseResolver
 {
@@ -28,13 +30,14 @@ final class TestCaseResolver
     private const DATASETS = 'Datasets';
 
     /**
-     * Parsed boot files per test directory; `null` = no `Pest.php`, or a file that is unreadable.
+     * Parsed boot files per test directory, wrapped so a `null` (no `Pest.php`, or an unreadable
+     * file) is cached too.
      *
-     * @var array<string, list<array{classes: list<string>, targets: list<string>}>|null>
+     * @var array<string, array{0: list<PestUsesEntry>|null}>
      */
     private static array $configs = [];
 
-    /** @var array<string, ?string> */
+    /** @var array<string, array{0: ?string}> */
     private static array $resolved = [];
 
     /**
@@ -43,11 +46,7 @@ final class TestCaseResolver
      */
     public static function resolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?string
     {
-        if (\array_key_exists($testFile, self::$resolved)) {
-            return self::$resolved[$testFile];
-        }
-
-        return self::$resolved[$testFile] = self::doResolve($testsDir, $testFile, $testContents, $isClass);
+        return (self::$resolved[$testFile] ??= [self::doResolve($testsDir, $testFile, $testContents, $isClass)])[0];
     }
 
     /** @param \Closure(string): ?bool $isClass */
@@ -58,7 +57,7 @@ final class TestCaseResolver
             return null;
         }
 
-        $config = self::config($testsDir);
+        $config = (self::$configs[$testsDir] ??= [self::loadConfig($testsDir)])[0];
         $realTestFile = UsesParser::realpath($testFile);
 
         $candidates = [];
@@ -79,12 +78,8 @@ final class TestCaseResolver
             }
         }
 
-        if (\count($candidates) > 1) {
-            return null;
-        }
-
         if ($candidates !== []) {
-            return \reset($candidates);
+            return \count($candidates) === 1 ? \reset($candidates) : null;
         }
 
         // Without readable boot files a directory-wide TestCase may exist that was not seen.
@@ -93,19 +88,16 @@ final class TestCaseResolver
             : null;
     }
 
-    /** @return list<array{classes: list<string>, targets: list<string>}>|null */
-    private static function config(string $testsDir): ?array
+    /** @return list<PestUsesEntry>|null */
+    private static function loadConfig(string $testsDir): ?array
     {
-        if (\array_key_exists($testsDir, self::$configs)) {
-            return self::$configs[$testsDir];
-        }
-
         $realTestsDir = \realpath($testsDir);
         $files = $realTestsDir === false || !\is_file($realTestsDir . \DIRECTORY_SEPARATOR . 'Pest.php')
             ? null
             : self::bootFiles($realTestsDir);
+
         if ($files === null) {
-            return self::$configs[$testsDir] = null;
+            return null;
         }
 
         $entries = [];
@@ -115,13 +107,13 @@ final class TestCaseResolver
             $contents = \realpath($file) === $file ? \file_get_contents($file) : false;
             $parsed = $contents === false ? null : UsesParser::parse($file, $contents);
             if ($parsed === null) {
-                return self::$configs[$testsDir] = null;
+                return null;
             }
 
             \array_push($entries, ...$parsed);
         }
 
-        return self::$configs[$testsDir] = $entries;
+        return $entries;
     }
 
     /** @return list<string>|null null when the tree cannot be walked */
@@ -171,8 +163,8 @@ final class TestCaseResolver
         $files = [];
         /** @psalm-var \SplFileInfo|string $file */
         foreach (new \RecursiveIteratorIterator($directory) as $file) {
-            if ($file instanceof \SplFileInfo && \str_ends_with($file->getPathname(), '.php')) {
-                $files[] = $file->getPathname();
+            if (\str_ends_with((string) $file, '.php')) {
+                $files[] = (string) $file;
             }
         }
 

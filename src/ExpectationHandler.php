@@ -7,7 +7,6 @@ namespace AliesDev\PsalmPluginPest;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Storage\ClassLikeStorage;
-use Psalm\Storage\MethodStorage;
 use Psalm\Type;
 use Psalm\Type\Atomic\TGenericObject;
 use Psalm\Type\Atomic\TNamedObject;
@@ -19,30 +18,28 @@ use Psalm\Type\Union;
  * `->toBeArray()->not->toBeEmpty()` and `->formatId->toBe('meta')` all resolve.
  *
  * Pest hides its assertions one `@mixin` deeper than Psalm looks: `Expectation` mixes in
- * `Mixins\Expectation<TValue>`, which holds every `toX()`, while the proxies behind `->not`,
- * `->each` and `->someProperty` (`OppositeExpectation`, `EachExpectation`, `HigherOrderExpectation`)
- * only mix in `Expectation`. Psalm follows a mixin one hop and not through a generic one
- * (`Populator::resolveTransitiveMixins()` skips `TGenericObject`), and Pest's `self<TValue>` returns
- * and `@property` tags without template arguments break the chain a second time. All of it is storage
- * data, so this patches storage once population is done, using what Psalm scanned: a new Pest
- * assertion is picked up with no change here. Four patches:
+ * `Mixins\Expectation<TValue>`, which holds every `toX()`, while the proxies behind `->not`, `->each`
+ * and `->someProperty` (`OppositeExpectation`, `EachExpectation`, `HigherOrderExpectation`) only mix in
+ * `Expectation`. Psalm follows a mixin one hop and not through a generic one, and Pest's `self<TValue>`
+ * returns and template-less `@property` tags break the chain a second time. All of it is storage data,
+ * so this patches storage once population is done, from what Psalm scanned: a new Pest assertion needs
+ * no change here. Four patches:
  *
- * 1. Assertions return `Expectation<TValue>` instead of `Mixins\Expectation<TValue>`. `Expectation::__call()`
- *    runs the mixin and returns the outer `$this`, so `->not` / `->each` stay reachable after any assertion.
- * 2. `Expectation`'s `$not` / `$each` pseudo properties carry the value type (`OppositeExpectation<TValue>`):
- *    without it a proxy has no template arguments for step 3 to resolve.
+ * 1. Assertions return `Expectation<TValue>` instead of `Mixins\Expectation<TValue>`:
+ *    `Expectation::__call()` returns the outer `$this`, so `->not` / `->each` stay reachable.
+ * 2. `Expectation`'s `$not` / `$each` pseudo properties carry the value type, so a proxy has template
+ *    arguments for step 3 to resolve.
  * 3. Each proxy gets a pseudo method per assertion, cloned from `Mixins\Expectation` so argument checking
  *    still works (`expect(1)->not->toBe()` is a `TooFewArguments`). The return type follows the proxy's
- *    `__call()`: `OppositeExpectation` hands back `Expectation<TValue>`, `EachExpectation` itself,
- *    `HigherOrderExpectation` itself. Only assertions neither the proxy nor `Expectation` already
- *    reaches are cloned, so what Pest declares on the proxy (the arch assertions) keeps its own signature.
- *    A pseudo method, not a mixin or a method provider: it leaves unknown methods sealed, so
+ *    `__call()`: `Expectation<TValue>` for `OppositeExpectation`, the proxy itself for the others. Only
+ *    assertions neither the proxy nor `Expectation` reaches are cloned, so the proxy's own methods (the
+ *    arch assertions) keep their signature. A pseudo method, not a mixin, keeps unknown methods sealed:
  *    `->not->toBeBananas()` is still reported.
  * 4. `Expectation::__get()` accepts any name: `$expect->formatId` is a `HigherOrderExpectation` over that
  *    member of the value. `@property` tags make Psalm treat magic properties as sealed, so the tag-less
- *    `HigherOrderExpectation` (sealed by `sealAllProperties`) is opened the same way, and for methods too:
- *    its `__call()` forwards an unknown method to the value. `Expectation::__call()` stays sealed, because
- *    there an unknown name on a non-object value is a real mistake.
+ *    `HigherOrderExpectation` is opened the same way, and for methods too: its `__call()` forwards an
+ *    unknown method to the value. `Expectation::__call()` stays sealed, because there an unknown name on
+ *    a non-object value is a real mistake.
  *
  * Runs after {@see InternalDslHandler}, so the cloned methods carry no `@internal` marker.
  *
@@ -54,10 +51,10 @@ use Psalm\Type\Union;
 final class ExpectationHandler implements AfterCodebasePopulatedInterface
 {
     /**
-     * Each proxy and what an assertion called through it returns (the class, with the proxy's own
-     * template arguments: the `__call()` return types in Pest's src/Expectations).
+     * Each proxy and what an assertion called through it returns: the class its `__call()` hands back,
+     * on the proxy's own template arguments.
      */
-    private const ASSERTION_RESULTS = [
+    private const PROXY_RESULTS = [
         PestApi::OPPOSITE_EXPECTATION => PestApi::EXPECTATION,
         PestApi::EACH_EXPECTATION => PestApi::EACH_EXPECTATION,
         PestApi::HIGHER_ORDER_EXPECTATION => PestApi::HIGHER_ORDER_EXPECTATION,
@@ -66,37 +63,29 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
     {
-        $storageProvider = $event->getCodebase()->classlike_storage_provider;
+        $provider = $event->getCodebase()->classlike_storage_provider;
 
-        $classes = [PestApi::EXPECTATION, PestApi::MIXIN_EXPECTATION, ...\array_keys(self::ASSERTION_RESULTS)];
-        foreach ($classes as $class) {
-            // A Pest too old or too new to have one of them is not ours to patch.
-            if (!$storageProvider->has($class)) {
+        $storages = [];
+        foreach ([PestApi::EXPECTATION, PestApi::MIXIN_EXPECTATION, ...\array_keys(self::PROXY_RESULTS)] as $class) {
+            // Without one of them (no Pest, or a Pest of another shape) there is nothing of ours to patch.
+            if (!$provider->has($class)) {
                 return;
             }
+
+            $storages[$class] = $provider->get($class);
         }
 
-        $expectation = $storageProvider->get(PestApi::EXPECTATION);
-        $assertions = $storageProvider->get(PestApi::MIXIN_EXPECTATION);
-        $proxies = [];
-        foreach (self::ASSERTION_RESULTS as $proxy => $_) {
-            $proxies[$proxy] = $storageProvider->get($proxy);
-        }
+        $expectation = $storages[PestApi::EXPECTATION];
+        $assertions = $storages[PestApi::MIXIN_EXPECTATION];
 
         self::returnOuterExpectation($assertions);
-        self::carryValueTypeIntoProxyProperties($expectation, $proxies);
+        self::carryValueTypeIntoProxyProperties($expectation);
 
-        foreach (self::ASSERTION_RESULTS as $proxy => $result) {
-            $proxyStorage = $proxies[$proxy];
-            $resultType = self::resultType($proxyStorage, $storageProvider->get($result));
-            if (!$resultType instanceof \Psalm\Type\Union) {
-                continue;
-            }
-
-            self::forwardAssertions($proxyStorage, $resultType, $assertions, $expectation);
+        foreach (self::PROXY_RESULTS as $proxy => $result) {
+            self::forwardAssertions($storages[$proxy], $result, $assertions, $expectation);
         }
 
-        self::acceptAnyHigherOrderMember($expectation, $proxies[PestApi::HIGHER_ORDER_EXPECTATION]);
+        self::acceptAnyHigherOrderMember($expectation, $storages[PestApi::HIGHER_ORDER_EXPECTATION]);
     }
 
     /**
@@ -119,65 +108,43 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface
 
     /**
      * `@property OppositeExpectation $not` names the class bare, so `expect(1)->not` would be
-     * `OppositeExpectation<mixed>`. A proxy whose template list matches the expectation's is handed
-     * the expectation's own `TValue`; the rest of the tags (`$classes` ...) stay as Pest wrote them.
-     *
-     * @param array<string, ClassLikeStorage> $proxies
+     * `OppositeExpectation<mixed>`: give it the expectation's own `TValue`. The other tags
+     * (`$classes` ...) stay as Pest wrote them.
      */
-    private static function carryValueTypeIntoProxyProperties(ClassLikeStorage $expectation, array $proxies): void
+    private static function carryValueTypeIntoProxyProperties(ClassLikeStorage $expectation): void
     {
         $arguments = self::templateArguments($expectation);
-        if ($arguments === []) {
-            return;
-        }
 
         foreach ($expectation->pseudo_property_get_types as $property => $type) {
-            $atomics = [];
-            $carried = false;
-            foreach ($type->getAtomicTypes() as $atomic) {
-                $isBareProxy = $atomic::class === TNamedObject::class
-                    && isset($proxies[$atomic->value])
-                    && \count(self::templateArguments($proxies[$atomic->value])) === \count($arguments);
+            $atomic = $type->isSingle() ? $type->getSingleAtomic() : null;
 
-                $carried = $carried || $isBareProxy;
-                $atomics[] = $isBareProxy ? new TGenericObject($atomic->value, $arguments) : $atomic;
-            }
-
-            if ($carried) {
-                $expectation->pseudo_property_get_types[$property] = new Union($atomics);
+            if ($atomic !== null
+                && $atomic::class === TNamedObject::class
+                && isset(self::PROXY_RESULTS[$atomic->value])
+            ) {
+                $expectation->pseudo_property_get_types[$property] = new Union([
+                    new TGenericObject($atomic->value, $arguments),
+                ]);
             }
         }
-    }
-
-    /**
-     * What an assertion returns through `$proxy`: the result class on the proxy's own template
-     * arguments. Null when the two do not line up (a Pest that changed their shape).
-     *
-     * @psalm-mutation-free
-     */
-    private static function resultType(ClassLikeStorage $proxy, ClassLikeStorage $result): ?Union
-    {
-        $arguments = self::templateArguments($proxy);
-        if ($arguments === [] || \count(self::templateArguments($result)) !== \count($arguments)) {
-            return null;
-        }
-
-        return new Union([new TGenericObject($result->name, $arguments)]);
     }
 
     /**
      * Gives `$proxy` a pseudo method for every assertion it does not reach yet. The parameters are
      * shared with the original, which mentions no class template (only `__construct()` does), so
-     * they need no remapping; the return type is built from the proxy's own templates.
+     * they need no remapping; the return type is `$result` on the proxy's own templates.
      */
     private static function forwardAssertions(
         ClassLikeStorage $proxy,
-        Union $resultType,
+        string $result,
         ClassLikeStorage $assertions,
         ClassLikeStorage $expectation,
     ): void {
+        $returnType = new Union([new TGenericObject($result, self::templateArguments($proxy))]);
+
         foreach ($assertions->methods as $name => $assertion) {
-            if (!self::isAssertion($assertion, $name)
+            // Public only (`export()` is not an assertion); `__construct()` is declared by every proxy.
+            if ($assertion->visibility !== \ReflectionMethod::IS_PUBLIC
                 || isset($proxy->declaring_method_ids[$name])
                 || isset($expectation->declaring_method_ids[$name])
             ) {
@@ -186,7 +153,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface
 
             $forwarded = clone $assertion;
             $forwarded->defining_fqcln = $proxy->name;
-            $forwarded->return_type = $resultType;
+            $forwarded->return_type = $returnType;
             $forwarded->signature_return_type = null;
 
             $proxy->pseudo_methods[$name] = $forwarded;
@@ -207,48 +174,31 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface
         $higherOrder->sealed_properties = false;
         $higherOrder->sealed_methods = false;
 
-        $arguments = self::templateArguments($expectation);
-        if ($arguments === [] || !isset($expectation->methods['__get'])) {
-            return;
-        }
-
         $expectation->methods['__get']->return_type = new Union([
             new TGenericObject($higherOrder->name, [
-                new Union([new TGenericObject($expectation->name, $arguments)]),
+                new Union([new TGenericObject($expectation->name, self::templateArguments($expectation))]),
                 Type::getMixed(),
             ]),
         ]);
     }
 
     /**
-     * Public instance methods only. The magic ones are the dispatch itself, and a static one
-     * (`Mixins\Expectation` has none today) is not reachable through `->not->`.
+     * A class's own template parameters as type arguments (`Expectation<TValue>` for `Expectation`);
+     * every Pest class this plugin patches has at least one.
      *
-     * @psalm-mutation-free
-     */
-    private static function isAssertion(MethodStorage $method, string $lowercaseName): bool
-    {
-        return $method->visibility === \ReflectionMethod::IS_PUBLIC
-            && !$method->is_static
-            && !\str_starts_with($lowercaseName, '__');
-    }
-
-    /**
-     * A class's own template parameters as type arguments (`Expectation<TValue>` for `Expectation`).
-     *
-     * @return list<Union>
+     * @return non-empty-list<Union>
      *
      * @psalm-mutation-free
      */
     private static function templateArguments(ClassLikeStorage $storage): array
     {
-        $arguments = [];
-        foreach ($storage->template_types ?? [] as $name => $definedAs) {
-            $arguments[] = new Union([
+        /** @var non-empty-list<Union> */
+        return \array_map(
+            static fn(string $name, array $definedAs): Union => new Union([
                 new TTemplateParam($name, \current($definedAs), $storage->name),
-            ]);
-        }
-
-        return $arguments;
+            ]),
+            \array_keys($storage->template_types ?? []),
+            \array_values($storage->template_types ?? []),
+        );
     }
 }

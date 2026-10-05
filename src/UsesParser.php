@@ -40,6 +40,9 @@ final class UsesParser
 {
     private const CLASS_METHODS = ['extend' => true, 'extends' => true, 'use' => true, 'uses' => true];
 
+    /** Pest functions that open a configuration chain. */
+    private const ROOTS = ['uses', 'pest'];
+
     /**
      * @param bool $bootFile false for a test file: its closures run after Pest resolved the file's
      *                       TestCase, so an include inside one cannot configure it
@@ -47,8 +50,8 @@ final class UsesParser
      */
     public static function parse(string $filePath, string $contents, bool $bootFile = true): ?array
     {
-        // Cheap bail: most test files never mention either name, nor include another file. Any
-        // mention at all (a comment before the parenthesis, an alias import) takes the AST path.
+        // Cheap bail: most files never mention either name, nor include another file. Any mention
+        // at all (a comment before the parenthesis, an alias import) takes the AST path.
         if (\preg_match('/\b(?:uses|pest|include|require|include_once|require_once)\b/i', $contents) !== 1) {
             return [];
         }
@@ -59,17 +62,13 @@ final class UsesParser
             return null;
         }
 
-        $traverser = new NodeTraverser(new NameResolver());
-        $statements = $traverser->traverse($statements);
+        $statements = (new NodeTraverser(new NameResolver()))->traverse($statements);
 
         if (!self::isLinear($statements, $bootFile)) {
             return null;
         }
 
         $entries = [];
-        /** @var array<int, true> $readRoots */
-        $readRoots = [];
-
         foreach (self::topLevelExpressions($statements) as $expression) {
             $chain = [];
             while ($expression instanceof MethodCall) {
@@ -77,7 +76,7 @@ final class UsesParser
                     return null;
                 }
 
-                $chain[] = [\strtolower($expression->name->name), $expression->getArgs()];
+                \array_unshift($chain, [\strtolower($expression->name->name), $expression->getArgs()]);
                 $expression = $expression->var;
             }
 
@@ -85,12 +84,7 @@ final class UsesParser
                 continue;
             }
 
-            if ($expression->isFirstClassCallable()) {
-                return null;
-            }
-
-            $readRoots[\spl_object_id($expression)] = true;
-            $entry = self::readChain($filePath, $expression, \array_reverse($chain));
+            $entry = $expression->isFirstClassCallable() ? null : self::readChain($filePath, $expression, $chain);
             if ($entry === null) {
                 return null;
             }
@@ -100,13 +94,7 @@ final class UsesParser
 
         // A root that is not the head of a top-level statement (inside a closure, a condition, an
         // assignment) may or may not run: the file cannot be read reliably.
-        foreach ((new NodeFinder())->find($statements, self::isRootCall(...)) as $root) {
-            if (!isset($readRoots[\spl_object_id($root)])) {
-                return null;
-            }
-        }
-
-        return $entries;
+        return \count((new NodeFinder())->find($statements, self::isRootCall(...))) === \count($entries) ? $entries : null;
     }
 
     /**
@@ -118,12 +106,6 @@ final class UsesParser
     private static function isLinear(array $statements, bool $bootFile): bool
     {
         $finder = new NodeFinder();
-        $opaque = $finder->findFirst($statements, static fn(Node $node): bool => $node instanceof String_
-            && \in_array(\strtolower(\ltrim($node->value, '\\')), ['uses', 'pest'], true));
-        if ($opaque instanceof \PhpParser\Node) {
-            return false;
-        }
-
         $deferredIncludes = [];
         if (!$bootFile) {
             foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction) as $closure) {
@@ -133,24 +115,16 @@ final class UsesParser
             }
         }
 
-        foreach ($finder->findInstanceOf($statements, Expr\Include_::class) as $include) {
-            if (!isset($deferredIncludes[\spl_object_id($include)])) {
-                return false;
-            }
-        }
-
-        foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Stmt\Use_ || $node instanceof Stmt\GroupUse) as $use) {
-            \assert($use instanceof Stmt\Use_ || $use instanceof Stmt\GroupUse);
-            foreach ($use->uses as $item) {
-                // A plain `use` carries the kind on the statement, a group `use` may carry it per item.
-                $name = $use instanceof Stmt\GroupUse ? Name::concat($use->prefix, $item->name) : $item->name;
-                if (($item->type !== Stmt\Use_::TYPE_UNKNOWN ? $item->type : $use->type) === Stmt\Use_::TYPE_FUNCTION
-                    && $name instanceof Name
-                    && \in_array($name->toLowerString(), ['uses', 'pest'], true)
-                ) {
-                    return false;
-                }
-            }
+        $opaque = $finder->findFirst($statements, static fn(Node $node): bool => match (true) {
+            $node instanceof String_ => \in_array(\strtolower(\ltrim($node->value, '\\')), self::ROOTS, true),
+            $node instanceof Expr\Include_ => !isset($deferredIncludes[\spl_object_id($node)]),
+            // Only a plain `use function` can alias the global name; a group `use` always has a namespace prefix.
+            $node instanceof Stmt\Use_ => $node->type === Stmt\Use_::TYPE_FUNCTION
+                && \array_intersect(\array_map(static fn(Node\UseItem $item): string => $item->name->toLowerString(), $node->uses), self::ROOTS) !== [],
+            default => false,
+        });
+        if ($opaque instanceof Node) {
+            return false;
         }
 
         $visitor = new class extends \PhpParser\NodeVisitorAbstract {
@@ -184,7 +158,7 @@ final class UsesParser
     {
         return $node instanceof FuncCall
             && $node->name instanceof Name
-            && \in_array($node->name->toLowerString(), ['uses', 'pest'], true);
+            && \in_array($node->name->toLowerString(), self::ROOTS, true);
     }
 
     /**
@@ -209,8 +183,6 @@ final class UsesParser
     private static function readChain(string $filePath, FuncCall $root, array $chain): ?array
     {
         $isUses = $root->name instanceof Name && $root->name->toLowerString() === 'uses';
-        $origin = !$isUses && \basename($filePath) === 'Pest.php' ? \dirname($filePath) : $filePath;
-
         $classes = $isUses ? self::readStrings($root->getArgs(), $filePath, true) : [];
         $targets = null;
 
@@ -224,7 +196,7 @@ final class UsesParser
                     return null;
                 }
 
-                $targets = self::expandTargets($read, \is_dir($origin) ? $origin : \dirname($origin));
+                $targets = self::expandTargets($read, \dirname($filePath));
             }
         }
 
@@ -232,12 +204,14 @@ final class UsesParser
             return null;
         }
 
-        return ['classes' => $classes, 'targets' => $targets ?? [self::realpath($origin)]];
+        // Without `in()`: `pest()` in Pest.php covers its directory, any other root only its file.
+        $default = !$isUses && \basename($filePath) === 'Pest.php' ? \dirname($filePath) : $filePath;
+
+        return ['classes' => $classes, 'targets' => $targets ?? [self::realpath($default)]];
     }
 
     /**
      * @param array<Node\Arg> $args
-     *
      * @return list<string>|null
      *
      * @psalm-mutation-free
@@ -246,11 +220,9 @@ final class UsesParser
     {
         $values = [];
         foreach ($args as $arg) {
-            if ($arg->unpack || $arg->name instanceof Identifier) {
-                return null;
-            }
-
-            $value = $classNames ? self::readClassName($arg->value) : self::readPath($arg->value, $filePath);
+            $value = $arg->unpack || $arg->name instanceof Identifier
+                ? null
+                : ($classNames ? self::readClassName($arg->value) : self::readPath($arg->value, $filePath));
             if ($value === null) {
                 return null;
             }
@@ -264,32 +236,19 @@ final class UsesParser
     /** @psalm-mutation-free */
     private static function readClassName(Expr $expr): ?string
     {
-        if ($expr instanceof String_) {
-            return \ltrim($expr->value, '\\');
-        }
-
-        if ($expr instanceof Expr\ClassConstFetch
-            && $expr->class instanceof Name\FullyQualified
-            && $expr->name instanceof Identifier
-            && \strtolower($expr->name->name) === 'class'
-        ) {
-            return $expr->class->toString();
-        }
-
-        return null;
+        return match (true) {
+            $expr instanceof String_ => \ltrim($expr->value, '\\'),
+            $expr instanceof Expr\ClassConstFetch
+                && $expr->class instanceof Name\FullyQualified
+                && $expr->name instanceof Identifier
+                && \strtolower($expr->name->name) === 'class' => $expr->class->toString(),
+            default => null,
+        };
     }
 
     /** @psalm-mutation-free */
     private static function readPath(Expr $expr, string $filePath): ?string
     {
-        if ($expr instanceof String_) {
-            return $expr->value;
-        }
-
-        if ($expr instanceof Dir) {
-            return \dirname($filePath);
-        }
-
         if ($expr instanceof Expr\BinaryOp\Concat) {
             $left = self::readPath($expr->left, $filePath);
             $right = self::readPath($expr->right, $filePath);
@@ -297,7 +256,11 @@ final class UsesParser
             return $left === null || $right === null ? null : $left . $right;
         }
 
-        return null;
+        return match (true) {
+            $expr instanceof String_ => $expr->value,
+            $expr instanceof Dir => \dirname($filePath),
+            default => null,
+        };
     }
 
     /**
@@ -308,8 +271,7 @@ final class UsesParser
     {
         $targets = [];
         foreach ($paths as $path) {
-            $pattern = \str_starts_with($path, \DIRECTORY_SEPARATOR) ? $path : $baseDir . \DIRECTORY_SEPARATOR . $path;
-            $matches = \glob($pattern);
+            $matches = \glob(\str_starts_with($path, \DIRECTORY_SEPARATOR) ? $path : $baseDir . \DIRECTORY_SEPARATOR . $path);
             foreach ($matches === false ? [] : $matches as $match) {
                 $targets[] = self::realpath($match);
             }

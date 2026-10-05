@@ -7,24 +7,22 @@ namespace AliesDev\PsalmPluginPest;
 use PhpParser\Node\Name;
 
 /**
- * Reads the `resolvedName` / `namespacedName` attributes a name resolver leaves on a {@see Name}.
- *
- * Which resolver ran decides the attribute's type: Psalm's own one stores plain strings, php-parser's
- * `NameResolver` stores {@see Name} objects. Both are accepted, anything else is treated as absent.
+ * Reads the `resolvedName` / `namespacedName` string attributes Psalm's own name resolver leaves on
+ * the {@see Name}s of the statements it analyses.
  *
  * @internal
  */
 final class NameResolution
 {
     /**
-     * The fully qualified name the resolver attached to `$name` (an import, a fully qualified name, or an
+     * The fully qualified name Psalm attached to `$name` (an import, a fully qualified name, or an
      * unqualified one outside any namespace), or null when it could not resolve it on its own.
      *
      * @return non-empty-string|null
      */
     public static function resolved(Name $name): ?string
     {
-        return self::asString($name->getAttribute('resolvedName'));
+        return self::string($name->getAttribute('resolvedName'));
     }
 
     /**
@@ -43,7 +41,7 @@ final class NameResolution
             return [\strtolower($resolved), null];
         }
 
-        $namespaced = self::asString($name->getAttribute('namespacedName'));
+        $namespaced = self::string($name->getAttribute('namespacedName'));
 
         return [\strtolower($name->toString()), $namespaced === null ? null : \strtolower($namespaced)];
     }
@@ -53,12 +51,8 @@ final class NameResolution
      *
      * @psalm-pure
      */
-    private static function asString(mixed $attribute): ?string
+    private static function string(mixed $attribute): ?string
     {
-        if ($attribute instanceof Name) {
-            $attribute = $attribute->toString();
-        }
-
         return \is_string($attribute) && $attribute !== '' ? $attribute : null;
     }
 }

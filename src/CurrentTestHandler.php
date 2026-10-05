@@ -26,14 +26,10 @@ use Psalm\Type\Union;
  *
  * Registered at AfterCodebasePopulated only when the scanned `test()` is Pest's, recognised by the
  * proxy in its native return type, so a project's unrelated global `test()` is never touched.
- * Without `@param-closure-this` support in the installed Psalm no closure is bound, `self` stays
- * unset, and the handler declines everywhere.
  */
 final class CurrentTestHandler implements AfterCodebasePopulatedInterface
 {
     private const FUNCTION = 'test';
-
-    private const PHPUNIT_TEST_CASE = 'PHPUnit\Framework\TestCase';
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -72,34 +68,20 @@ final class CurrentTestHandler implements AfterCodebasePopulatedInterface
     /** @psalm-pure */
     private static function returnsTapProxy(?Union $returnType): bool
     {
-        if (!$returnType instanceof Union) {
-            return false;
-        }
-
-        foreach ($returnType->getAtomicTypes() as $atomic) {
-            if ($atomic instanceof TNamedObject && $atomic->value === PestApi::HIGHER_ORDER_TAP_PROXY) {
-                return true;
-            }
-        }
-
-        return false;
+        return $returnType instanceof \Psalm\Type\Union && isset($returnType->getAtomicTypes()[PestApi::HIGHER_ORDER_TAP_PROXY]);
     }
 
     /**
-     * Reads the populated parent list rather than asking the Codebase, whose class lookups throw
-     * for a class without storage.
+     * The populated parent list, not the Codebase, whose class lookups throw for a class without storage.
      *
      * @psalm-mutation-free
      */
     private static function isTestCase(Codebase $codebase, string $class): bool
     {
-        try {
-            $storage = $codebase->classlike_storage_provider->get($class);
-        } catch (\InvalidArgumentException|\Psalm\Exception\UnpopulatedClasslikeException) {
-            return false;
-        }
+        $storage = BoundTestCase::storage($codebase, $class);
 
-        return \strtolower($storage->name) === \strtolower(self::PHPUNIT_TEST_CASE)
-            || isset($storage->parent_classes[\strtolower(self::PHPUNIT_TEST_CASE)]);
+        return $storage instanceof \Psalm\Storage\ClassLikeStorage
+            && ($storage->name === TestCaseResolver::DEFAULT_TEST_CASE
+                || isset($storage->parent_classes[\strtolower(TestCaseResolver::DEFAULT_TEST_CASE)]));
     }
 }
