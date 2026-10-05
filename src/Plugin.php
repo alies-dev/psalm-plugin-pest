@@ -25,6 +25,7 @@ final class Plugin implements PluginEntryPointInterface
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,
         StaticTestClosureHandler::class,
+        DuplicateTestDescriptionHandler::class,
     ];
 
     #[\Override]

@@ -19,6 +19,7 @@ Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Yo
 - Stops reporting `InternalMethod` on Pest's public API.
 - Reports `PestHookInDescribe` for `beforeAll()` / `afterAll()` inside `describe()`, which Pest rejects when loading the file.
 - Reports `PestStaticTestClosure` for a `static` closure passed to `test()`, `it()`, `beforeEach()` or `afterEach()`, since Pest cannot bind `$this` to it.
+- Reports `PestDuplicateTestDescription` for a second test with the same description in a file (scoped by `describe()`), which Pest rejects when loading the file.
 
 ## Known limitations
 
