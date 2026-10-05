@@ -50,8 +50,8 @@ use Psalm\Type\Union;
  * The narrowing is Psalm's reconciler with `IsType` / `IsNotType`, so it intersects with the known type as
  * `is_string()` would. It gets no code location (tests routinely assert what the type already says) and is marked
  * as coming from a docblock, so a later contradicting `if` is a DocblockTypeContradiction. An assertion that
- * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime. Only plain variables
- * are narrowed.
+ * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime ({@see ExpectationHandler}
+ * reports it). Only plain variables are narrowed.
  */
 final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
 {
@@ -68,6 +68,10 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         'tobeobject' => 'object',
         'tobecallable' => 'callable',
         'tobeiterable' => 'iterable',
+        'tobelist' => 'list<mixed>',
+        'tobenumeric' => 'numeric',
+        'tobescalar' => 'scalar',
+        'toberesource' => 'resource',
     ];
 
     #[\Override]
@@ -101,6 +105,7 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
                 $context->references_in_scope,
                 $context->inside_loop,
                 $source,
+                $event->getCodebase(),
             );
         }
 
@@ -228,12 +233,26 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         return $type?->isSingle() ? $type->getSingleAtomic() : null;
     }
 
-    /** `$type` once the assertion passed (or, `$negated`, failed). */
-    public static function narrow(Union $type, Atomic $asserted, bool $negated, StatementsAnalyzer $source): Union
+    /** `$type` once the assertion passed (or, `$negated`, failed); null when it cannot hold for `$type`. */
+    public static function narrow(Union $type, Atomic $asserted, bool $negated, StatementsAnalyzer $source, Codebase $codebase): ?Union
     {
         $assertion = $negated ? new IsNotType($asserted) : new IsType($asserted);
+        $narrowed = self::run(['$v' => [[$assertion]]], ['$v' => $type], [], false, $source)[0]['$v'] ?? null;
 
-        return self::reconcile(['$v' => [[$assertion]]], ['$v' => $type], [], false, $source)[0]['$v'];
+        return self::impossible($narrowed, $type, $codebase) ? null : $narrowed;
+    }
+
+    /**
+     * Without a code location the reconciler does not flag an assertion that cannot hold: it answers the asserted
+     * type itself, which a possible assertion never does (its answer is always a part of the old type). A float
+     * is not an int here: Pest's matchers are strict.
+     *
+     * @psalm-assert-if-false Union $narrowed
+     */
+    private static function impossible(?Union $narrowed, Union $old, Codebase $codebase): bool
+    {
+        return !$narrowed instanceof \Psalm\Type\Union || $narrowed->isNever() || $narrowed->failed_reconciliation
+            || !$codebase->isTypeContainedByType($narrowed, $old, false, false, false, false);
     }
 
     /**
@@ -249,30 +268,34 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         array $references,
         bool $insideLoop,
         StatementsAnalyzer $source,
+        Codebase $codebase,
     ): array {
-        $changedVarIds = [];
-        [$reconciled, $references] = Reconciler::reconcileKeyedTypes(
-            $assertions,
-            [],
-            $vars,
-            $references,
-            $changedVarIds,
-            [],
-            $source,
-            [],
-            $insideLoop,
-        );
+        [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source);
 
         foreach (\array_keys($assertions) as $varId) {
             $narrowed = $reconciled[$varId] ?? null;
 
             // An impossible assertion keeps the type the code had: `never` would only breed noise.
-            $reconciled[$varId] = $narrowed === null || $narrowed->isNever() || $narrowed->failed_reconciliation
+            $reconciled[$varId] = self::impossible($narrowed, $vars[$varId], $codebase)
                 ? $vars[$varId]
                 : $narrowed->setFromDocblock(true);
         }
 
         return [$reconciled, $references];
+    }
+
+    /**
+     * @param array<string, list<list<Assertion>>> $assertions
+     * @param array<string, Union> $vars
+     * @param array<string, string> $references
+     *
+     * @return array{array<string, Union>, array<string, string>}
+     */
+    private static function run(array $assertions, array $vars, array $references, bool $insideLoop, StatementsAnalyzer $source): array
+    {
+        $changedVarIds = [];
+
+        return Reconciler::reconcileKeyedTypes($assertions, [], $vars, $references, $changedVarIds, [], $source, [], $insideLoop);
     }
 
     /**
