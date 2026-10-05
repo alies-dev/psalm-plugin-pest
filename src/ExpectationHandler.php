@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
+use AliesDev\PsalmPluginPest\Issue\PestImpossibleExpectation;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
@@ -143,6 +144,13 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         if ($receiver->value === PestApi::HIGHER_ORDER_EXPECTATION) {
             if ($expr instanceof MethodCall && $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name)) {
+                $asserted = ExpectNarrowingHandler::assertedType($member->toLowerString(), $expr, $source);
+                if ($asserted instanceof Atomic && !ExpectNarrowingHandler::narrow($receiver->type_params[1], $asserted, false, $source, $codebase) instanceof Union) {
+                    self::reportImpossible($member, $receiver->type_params[1], $source);
+
+                    return self::generic(PestApi::HIGHER_ORDER_EXPECTATION, $value, Type::getMixed());
+                }
+
                 $original = ExpectNarrowingHandler::atomic($value);
 
                 return $original instanceof TGenericObject && $original->value === PestApi::EXPECTATION
@@ -157,15 +165,34 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         $asserted = $expr instanceof MethodCall ? ExpectNarrowingHandler::assertedType($member->toLowerString(), $expr, $source) : null;
         if ($asserted instanceof Atomic) {
-            return self::generic(
-                PestApi::EXPECTATION,
-                ExpectNarrowingHandler::narrow($value, $asserted, $receiver->value === PestApi::OPPOSITE_EXPECTATION, $source),
-            );
+            $negated = $receiver->value === PestApi::OPPOSITE_EXPECTATION;
+            $narrowed = ExpectNarrowingHandler::narrow($value, $asserted, $negated, $source, $codebase);
+            if (!$narrowed instanceof \Psalm\Type\Union && !$negated) {
+                self::reportImpossible($member, $value, $source);
+            }
+
+            // A broken chain has no known value: the steps after the failing one must not report again.
+            return self::generic(PestApi::EXPECTATION, $narrowed ?? ($negated ? $value : Type::getMixed()));
         }
 
         return $fellThrough
             ? self::generic(PestApi::HIGHER_ORDER_EXPECTATION, self::generic(PestApi::EXPECTATION, $value), self::member($value, $expr, $member, $source))
             : null;
+    }
+
+    /**
+     * Pest's type matchers are strict, so one that no value of `$value` can pass always fails the test. The
+     * narrowing handler stays quiet about it on purpose; this is the diagnostic.
+     */
+    private static function reportImpossible(Identifier $member, Union $value, StatementsSource $source): void
+    {
+        IssueBuffer::maybeAdd(
+            new PestImpossibleExpectation(
+                "Pest's {$member->name}() is a strict type check that always fails for {$value->getId()}; assert the type the value has or remove the assertion.",
+                new CodeLocation($source, $member),
+            ),
+            $source->getSuppressedIssues(),
+        );
     }
 
     /**
