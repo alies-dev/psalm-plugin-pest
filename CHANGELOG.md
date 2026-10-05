@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Report `PestImpossibleExpectation` for a type matcher that can never pass for the subject's type, such as `expect(42)->toBeString()` ([#10](https://github.com/alies-dev/psalm-plugin-pest/issues/10)).
+- Narrow after `toBeList()`, `toBeNumeric()`, `toBeScalar()` and `toBeResource()` ([#23](https://github.com/alies-dev/psalm-plugin-pest/issues/23)).
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
