@@ -18,6 +18,7 @@
     <issueHandlers>
         <InternalMethod>
             <errorLevel type="suppress">
+                <referencedMethod name="Psalm\Internal\Analyzer\ClosureAnalyzer::getClosureId" />
                 <referencedMethod name="Psalm\Internal\Analyzer\StatementsAnalyzer::getNodeTypeProvider" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::functionExists" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::getFullyQualifiedFunctionNameFromString" />

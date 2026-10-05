@@ -14,6 +14,7 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
+use Psalm\Internal\Analyzer\ClosureAnalyzer;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\AfterFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
@@ -23,10 +24,13 @@ use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyTypeProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyVisibilityProviderEvent;
+use Psalm\StatementsSource;
 use Psalm\Type;
+use Psalm\Type\Atomic\TArray;
 use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TFloat;
+use Psalm\Type\Atomic\TGenericObject;
 use Psalm\Type\Atomic\TInt;
 use Psalm\Type\Atomic\TLiteralFloat;
 use Psalm\Type\Atomic\TLiteralInt;
@@ -45,7 +49,8 @@ use Psalm\Type\Union;
  * {@see self::beforeAnalyzeFile()} reads that state off Psalm's own name-resolved statements, so it
  * is order-independent (a test may precede its `beforeEach()`). The type is the union of what Psalm
  * inferred for the assigned expressions, recorded while the closures are analysed, with scalar
- * literals widened; a read analysed before any assignment is `mixed`. Hooks in `Pest.php`
+ * literals widened and empty arrays / `never` generics (`[]`, `collect()`) opened up; a read analysed
+ * before any assignment is `mixed`, and a read in `afterEach()` is also `null`, as `beforeEach()` may have thrown first. Hooks in `Pest.php`
  * (`pest()->beforeEach(...)->in('Feature')`) seed the types for the files they target ({@see UsesParser}).
  *
  * Instance properties only: Psalm resolves `self::$name` through the same existence provider and,
@@ -58,6 +63,9 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<int, string> start offset of each `$this->name = ...` in a `beforeEach()` closure => name */
     private static array $assignments = [];
 
+    /** @var array<string, true> ids of the `afterEach()` closures, which may run after a `beforeEach()` that threw */
+    private static array $afterEach = [];
+
     /** @var array<string, true> static accesses as `self::name`, `*::name` (dynamic class) or `lowercase\fq\class::name` */
     private static array $statics = [];
 
@@ -67,7 +75,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
     private static array $declared = [];
 
-    /** @var list<array{array<int, string>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>}> the including files' state */
+    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>}> the including files' state */
     private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
@@ -93,7 +101,11 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                     return null;
                 }
 
-                return ($event->isReadMode() ? self::$types[$name] ?? null : self::$declared[$name] ?? null) ?? Type::getMixed();
+                $type = ($event->isReadMode() ? self::$types[$name] ?? null : self::$declared[$name] ?? null) ?? Type::getMixed();
+
+                return $event->isReadMode() && !isset(self::$declared[$name]) && self::inAfterEach($event->getSource())
+                    ? Type::combineUnionTypes($type, Type::getNull())
+                    : $type;
             },
         );
     }
@@ -127,19 +139,25 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         $codebase = $event->getCodebase();
         $file = $event->getFileStorage()->file_path;
-        self::$outer[] = [self::$assignments, self::$statics, self::$types, self::$declared, BoundTestCase::bound()];
+        self::$outer[] = [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, BoundTestCase::bound()];
 
         // Pest.php hooks that target this file seed the types, so they union with its own assignments.
         self::$declared = BoundTestCase::traitProperties($codebase, $file);
         self::$types = \array_replace(self::$declared, BoundTestCase::properties($codebase, $file));
         self::$assignments = [];
+        self::$afterEach = [];
         self::$statics = [];
 
         $finder = new NodeFinder();
         $stmts = $event->getStmts();
         $declaredFunctions = $event->getFileStorage()->declaring_function_ids;
         foreach ([...$finder->findInstanceOf($stmts, FuncCall::class), ...$finder->findInstanceOf($stmts, MethodCall::class)] as $call) {
-            $closure = self::beforeEachClosure($call, $declaredFunctions);
+            $teardown = self::hookClosure($call, $declaredFunctions, 'aftereach');
+            if ($teardown !== null) {
+                self::$afterEach[\strtolower($file) . ':' . $teardown->getLine() . ':' . $teardown->getStartFilePos() . ':-:closure'] = true;
+            }
+
+            $closure = self::hookClosure($call, $declaredFunctions, 'beforeeach');
             if ($closure === null) {
                 continue;
             }
@@ -167,7 +185,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     #[\Override]
     public static function afterAnalyzeFile(AfterFileAnalysisEvent $event): void
     {
-        [self::$assignments, self::$statics, self::$types, self::$declared, $bound] = \array_pop(self::$outer) ?? [[], [], [], [], []];
+        [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, $bound] = \array_pop(self::$outer) ?? [[], [], [], [], [], []];
         BoundTestCase::reinstate($event->getCodebase(), $bound);
     }
 
@@ -184,6 +202,21 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             && !isset($codebase->classlike_storage_provider->get($testCase)->appearing_property_ids[$name]);
     }
 
+    /** Whether `$source` is, or sits in a closure nested in, an `afterEach()` closure. */
+    private static function inAfterEach(?StatementsSource $source): bool
+    {
+        while ($source instanceof \Psalm\StatementsSource) {
+            if ($source instanceof ClosureAnalyzer && isset(self::$afterEach[$source->getClosureId()])) {
+                return true;
+            }
+
+            $parent = $source->getSource();
+            $source = $parent === $source ? null : $parent;
+        }
+
+        return false;
+    }
+
     /** Whether `$link` is a chain of method calls rooted at Pest's `uses()` / `pest()`. */
     private static function isPestChain(Expr $link): bool
     {
@@ -197,24 +230,25 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     }
 
     /**
-     * The closure handed to Pest's `beforeEach(...)` call, or to the `->beforeEach(...)` of a
+     * The closure handed to Pest's `beforeEach(...)` / `afterEach(...)` call, or to the same method of a
      * `pest()` / `uses()` chain, that keeps the bound `$this`. An unqualified call inside a namespace
      * falls back to the global function only when the namespace declares none, so a function
      * declared in this file wins.
      *
      * @param array<string, string> $declaredFunctions the file's function ids
+     * @param 'beforeeach'|'aftereach' $hook
      */
-    private static function beforeEachClosure(FuncCall|MethodCall $call, array $declaredFunctions): Expr\Closure|Expr\ArrowFunction|null
+    private static function hookClosure(FuncCall|MethodCall $call, array $declaredFunctions, string $hook): Expr\Closure|Expr\ArrowFunction|null
     {
         if ($call->isFirstClassCallable()) {
             return null;
         }
 
         if ($call instanceof MethodCall) {
-            $isHook = $call->name instanceof Identifier && \strtolower($call->name->name) === 'beforeeach' && self::isPestChain($call->var);
+            $isHook = $call->name instanceof Identifier && \strtolower($call->name->name) === $hook && self::isPestChain($call->var);
         } elseif ($call->name instanceof Name) {
             $shadow = NameResolution::resolved($call->name, 'namespacedName');
-            $isHook = \strtolower(NameResolution::resolved($call->name) ?? $call->name->toString()) === 'beforeeach'
+            $isHook = \strtolower(NameResolution::resolved($call->name) ?? $call->name->toString()) === $hook
                 && !isset($declaredFunctions[\strtolower($shadow ?? '')]);
         } else {
             $isHook = false;
@@ -237,6 +271,12 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                 $atomic instanceof TLiteralString => new TString(),
                 $atomic instanceof TLiteralFloat => new TFloat(),
                 $atomic instanceof TTrue, $atomic instanceof TFalse => new TBool(),
+                // A fixture starting as `[]` / `collect()` is filled later, so `never` is only its initial state.
+                $atomic instanceof TArray && $atomic->isEmptyArray() => new TArray([Type::getArrayKey(), Type::getMixed()]),
+                $atomic instanceof TGenericObject => $atomic->setTypeParams(\array_map(
+                    static fn(Union $param): Union => $param->isNever() ? Type::getMixed() : $param,
+                    $atomic->type_params,
+                )),
                 default => $atomic,
             };
         }
