@@ -63,7 +63,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                             $source = $event->getStatementsSource();
                             $codebase = $source->getCodebase();
 
-                            return self::bind($codebase, $params, $offset, BoundTestCase::thisType($codebase, $source->getFilePath()));
+                            $file = $source->getFilePath();
+
+                            return self::bind($codebase, $params, $offset, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
                         },
                     );
                     break;
@@ -98,12 +100,12 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
 
         $chain = $class === PestApi::USES_CALL ? self::chainClasses($arg->getAttribute(self::RECEIVER)) : [];
 
-        return self::bind(
-            $codebase,
-            $params,
-            0,
-            BoundTestCase::thisTypeOf($codebase, $chain) ?? BoundTestCase::thisType($codebase, $source->getFilePath()),
-        );
+        $type = BoundTestCase::thisTypeOf($codebase, $chain);
+        $file = $source->getFilePath();
+
+        return $type instanceof \Psalm\Type\Union
+            ? self::bind($codebase, $params, 0, $type, BoundTestCase::traitsOf($codebase, $chain))
+            : self::bind($codebase, $params, 0, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
     }
 
     #[\Override]
@@ -142,14 +144,15 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     }
 
     /**
-     * Binds the closure parameter at `$offset` to `$type` and lets that TestCase's file declare its
-     * `beforeEach()` properties. Returns the params unchanged, never null (a function provider's null
+     * Binds the closure parameter at `$offset` to `$type`, lets that TestCase's file declare its
+     * `beforeEach()` properties and exposes the bound `$traits`' methods on it. Returns the params unchanged, never null (a function provider's null
      * would skip argument checking), when the TestCase is unknown.
      *
      * @param array<int, FunctionLikeParameter> $params
+     * @param list<string> $traits
      * @return array<int, FunctionLikeParameter>
      */
-    private static function bind(Codebase $codebase, array $params, int $offset, ?Union $type): array
+    private static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
     {
         $class = $type?->getSingleAtomic();
         if (!$class instanceof TNamedObject) {
@@ -157,6 +160,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         }
 
         BeforeEachPropertiesHandler::register($codebase, $class->value);
+        BoundTestCase::expose($codebase, $class->value, $traits);
 
         $params[$offset] = clone $params[$offset];
         $params[$offset]->closure_this_type = $type;

@@ -6,6 +6,7 @@ namespace AliesDev\PsalmPluginPest;
 
 use Psalm\Codebase;
 use Psalm\Exception\UnpopulatedClasslikeException;
+use Psalm\Internal\MethodIdentifier;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Type;
 use Psalm\Type\Atomic\TNamedObject;
@@ -18,17 +19,19 @@ use Psalm\Type\Union;
  */
 final class BoundTestCase
 {
-    /** `$this` in the file's Pest closures: the bound TestCase intersected with the traits bound next to it. */
+    /** @var array<string, array{ClassLikeStorage, lowercase-string, ?MethodIdentifier, ?MethodIdentifier}> what {@see self::expose()} replaced, by `Class::method` */
+    private static array $exposed = [];
+
+    /** `$this` in the file's Pest closures: the bound TestCase, never an intersection (Psalm reports a trait in one as an undefined class). */
     public static function thisType(Codebase $codebase, string $filePath): ?Union
     {
         $binding = self::binding($codebase, $filePath);
 
-        return $binding === null ? null : self::thisTypeOf($codebase, [$binding['class'], ...$binding['traits']]);
+        return $binding === null ? null : self::thisTypeOf($codebase, [$binding['class']]);
     }
 
     /**
-     * One named object of the first scanned class, the scanned traits as intersection types; null
-     * when none of the names is a scanned class.
+     * One named object of the first scanned class among the names; null when none is.
      *
      * @param list<string> $classesAndTraits
      *
@@ -36,22 +39,74 @@ final class BoundTestCase
      */
     public static function thisTypeOf(Codebase $codebase, array $classesAndTraits): ?Union
     {
-        $class = null;
-        $traits = [];
         foreach ($classesAndTraits as $name) {
             $storage = self::storage($codebase, $name);
-            if (!$storage instanceof ClassLikeStorage) {
-                continue;
-            }
-
-            if ($storage->is_trait) {
-                $traits[$storage->name] = new TNamedObject($storage->name);
-            } elseif ($class === null && !$storage->is_interface && !$storage->is_enum) {
-                $class = $storage->name;
+            if ($storage instanceof ClassLikeStorage && !$storage->is_trait && !$storage->is_interface && !$storage->is_enum) {
+                return new Union([new TNamedObject($storage->name)]);
             }
         }
 
-        return $class === null ? null : new Union([new TNamedObject($class, extra_types: $traits)]);
+        return null;
+    }
+
+    /**
+     * The scanned traits among the names.
+     *
+     * @param list<string> $classesAndTraits
+     * @return list<string>
+     *
+     * @psalm-mutation-free
+     */
+    public static function traitsOf(Codebase $codebase, array $classesAndTraits): array
+    {
+        $traits = [];
+        foreach ($classesAndTraits as $name) {
+            $storage = self::storage($codebase, $name);
+            if ($storage instanceof ClassLikeStorage && $storage->is_trait) {
+                $traits[] = $storage->name;
+            }
+        }
+
+        return $traits;
+    }
+
+    /**
+     * Makes the traits' methods members of `$class`, as in the TestCase Pest generates (a trait wins
+     * over an inherited method, not over an abstract one). Psalm resolves a call from the class's
+     * storage alone: a method provider cannot add a method to a class without `__call`, and a trait
+     * in an intersection type is reported as an undefined class. Undone by {@see self::restore()} when
+     * the outermost analysed file ends, so no other file sees the methods.
+     *
+     * @param list<string> $traits
+     */
+    public static function expose(Codebase $codebase, string $class, array $traits): void
+    {
+        $storage = self::storage($codebase, $class);
+        foreach ($traits as $trait) {
+            foreach (self::storage($codebase, $trait)?->declaring_method_ids ?? [] as $name => $declaring) {
+                if (!$storage instanceof \Psalm\Storage\ClassLikeStorage || self::storage($codebase, $declaring->fq_class_name)?->methods[$name]?->abstract !== false) {
+                    continue;
+                }
+
+                self::$exposed[$storage->name . '::' . $name] ??= [$storage, $name, $storage->declaring_method_ids[$name] ?? null, $storage->appearing_method_ids[$name] ?? null];
+                $storage->declaring_method_ids[$name] = $declaring;
+                $storage->appearing_method_ids[$name] = new MethodIdentifier($storage->name, $name);
+            }
+        }
+    }
+
+    /** Puts back what {@see self::expose()} replaced. */
+    public static function restore(): void
+    {
+        foreach (self::$exposed as [$storage, $name, $declaring, $appearing]) {
+            unset($storage->declaring_method_ids[$name], $storage->appearing_method_ids[$name]);
+            if ($declaring !== null && $appearing !== null) {
+                $storage->declaring_method_ids[$name] = $declaring;
+                $storage->appearing_method_ids[$name] = $appearing;
+            }
+        }
+
+        self::$exposed = [];
     }
 
     /** @return list<string> the traits bound next to the file's TestCase */
@@ -61,7 +116,7 @@ final class BoundTestCase
     }
 
     /**
-     * The bound traits' instance properties, which Psalm cannot fetch through a trait in an intersection.
+     * The bound traits' instance properties, which the property providers answer for.
      *
      * @return array<string, Union>
      */

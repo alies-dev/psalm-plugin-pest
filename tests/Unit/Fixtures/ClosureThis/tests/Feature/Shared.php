@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 // Mapped by tests/Pest.php: its trait and its beforeEach() property, with no declaration here.
 test('reads the trait and the hook property from Pest.php', function (): void {
-    $_user = $this->createUser();
+    $_user = $this->seed()->createUser();
     /** @psalm-check-type-exact $_user = PestClosureThisFixture\User */
     $_count = $this->createdUsers;
     /** @psalm-check-type-exact $_count = int */

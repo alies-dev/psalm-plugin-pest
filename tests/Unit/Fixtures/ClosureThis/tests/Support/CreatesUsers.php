@@ -13,4 +13,10 @@ trait CreatesUsers
     {
         return new User();
     }
+
+    /** @psalm-mutation-free */
+    public function seed(): static
+    {
+        return $this;
+    }
 }
