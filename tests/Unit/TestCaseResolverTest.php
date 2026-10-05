@@ -32,11 +32,29 @@ final class TestCaseResolverTest extends TestCase
     }
 
     #[Test]
-    public function directory_mapping_wins_and_traits_are_ignored(): void
+    public function directory_mapping_wins_and_traits_do_not_decide_the_class(): void
     {
         $this->writePest("uses(Tests\\TestCase::class, Tests\\Seeds::class)->in('Feature');");
 
         $this->assertSame('Tests\TestCase', $this->resolve('Feature/UserTest.php'));
+    }
+
+    #[Test]
+    public function traits_of_the_file_and_of_matching_entries_are_merged_with_the_hook_properties(): void
+    {
+        $this->writePest(<<<'PHP'
+            uses(Tests\TestCase::class, Tests\Seeds::class)->beforeEach(fn () => $this->shared = 1)->in('Feature');
+            pest()->use(Tests\Seeds::class)->beforeEach(fn () => $this->other = 'x')->in('Unit');
+            PHP);
+
+        $this->assertSame(
+            ['class' => 'Tests\TestCase', 'traits' => ['Tests\Seeds'], 'properties' => ['local' => ['mixed'], 'shared' => ['int']]],
+            $this->binding('Feature/UserTest.php', 'uses(Tests\\Seeds::class)->beforeEach(function () { $this->local = foo(); });'),
+        );
+        $this->assertSame(
+            ['class' => TestCaseResolver::DEFAULT_TEST_CASE, 'traits' => ['Tests\Seeds'], 'properties' => ['other' => ['string']]],
+            $this->binding('Unit/MathTest.php'),
+        );
     }
 
     #[Test]
@@ -116,6 +134,18 @@ final class TestCaseResolverTest extends TestCase
 
         TestCaseResolver::reset();
         $this->assertSame('Tests\Other', $this->resolve('Feature/UserTest.php'));
+    }
+
+    #[Test]
+    public function a_changed_test_file_drops_every_cached_answer(): void
+    {
+        $this->writePest("uses(Tests\\TestCase::class)->in('Feature');");
+        $this->assertSame('Tests\TestCase', $this->resolve('Feature/UserTest.php'));
+        $this->assertSame('Tests\TestCase', $this->resolve('Feature/OtherTest.php'));
+
+        $this->writePest("uses(Tests\\Other::class)->in('Feature');");
+        $this->assertSame('Tests\Other', $this->resolve('Feature/UserTest.php', '// edited'));
+        $this->assertSame('Tests\Other', $this->resolve('Feature/OtherTest.php'));
     }
 
     #[Test]
@@ -209,6 +239,12 @@ final class TestCaseResolverTest extends TestCase
     }
 
     private function resolve(string $relativeTestFile, string $testSource = ''): ?string
+    {
+        return $this->binding($relativeTestFile, $testSource)['class'] ?? null;
+    }
+
+    /** @return array{class: string, traits: list<string>, properties: array<string, non-empty-list<string>>}|null */
+    private function binding(string $relativeTestFile, string $testSource = ''): ?array
     {
         $testFile = $this->root . '/tests/' . $relativeTestFile;
         \file_put_contents($testFile, "<?php\n" . $testSource);

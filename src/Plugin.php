@@ -8,27 +8,33 @@ use Psalm\Plugin\PluginEntryPointInterface;
 use Psalm\Plugin\RegistrationInterface;
 
 /**
- * Both handlers self-gate at AfterCodebasePopulated on Pest being scanned, so the plugin is inert
- * in a project without Pest.
+ * Every handler self-gates on Pest being scanned, so the plugin is inert in a project without Pest.
  *
  * @psalm-api
  */
 final class Plugin implements PluginEntryPointInterface
 {
+    /** Registration order is hook order where two handlers share an event. */
+    private const HANDLERS = [
+        InternalDslHandler::class,
+        ExpectationHandler::class,
+        ClosureThisHandler::class,
+        HigherOrderTestHandler::class,
+        CurrentTestHandler::class,
+        BeforeEachPropertiesHandler::class,
+        ExpectNarrowingHandler::class,
+    ];
+
     #[\Override]
     public function __invoke(RegistrationInterface $registration, ?\SimpleXMLElement $config = null): void
     {
-        // Psalm's registerHooksFromClass() refuses to autoload (class_exists($handler, false)), so
-        // every handler is loaded explicitly; collaborators first, since the handlers reference them.
-        require_once __DIR__ . '/UsesParser.php';
-        require_once __DIR__ . '/TestCaseResolver.php';
-        require_once __DIR__ . '/ClosureThisHandler.php';
-        require_once __DIR__ . '/InternalDslHandler.php';
-
         // A reused process (language server, tests) must not see the previous run's answers.
         TestCaseResolver::reset();
 
-        $registration->registerHooksFromClass(InternalDslHandler::class);
-        $registration->registerHooksFromClass(ClosureThisHandler::class);
+        foreach (self::HANDLERS as $handler) {
+            // registerHooksFromClass() checks class_exists($handler, false) and never autoloads.
+            \class_exists($handler);
+            $registration->registerHooksFromClass($handler);
+        }
     }
 }

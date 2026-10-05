@@ -25,17 +25,17 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
      * `Pest\Expectation` itself is not internal; its `toX()` assertions live on the `@mixin`.
      */
     private const DSL_CLASSES = [
-        'Pest\Mixins\Expectation',
-        'Pest\Expectations\OppositeExpectation',
-        'Pest\Expectations\EachExpectation',
-        'Pest\Expectations\HigherOrderExpectation',
-        'Pest\PendingCalls\TestCall',
+        PestApi::MIXIN_EXPECTATION,
+        PestApi::OPPOSITE_EXPECTATION,
+        PestApi::EACH_EXPECTATION,
+        PestApi::HIGHER_ORDER_EXPECTATION,
+        PestApi::TEST_CALL,
         'Pest\PendingCalls\BeforeEachCall',
         'Pest\PendingCalls\AfterEachCall',
         'Pest\PendingCalls\DescribeCall',
         'Pest\PendingCalls\UsesCall',
         'Pest\Configuration',
-        'Pest\Support\HigherOrderTapProxy',
+        PestApi::HIGHER_ORDER_TAP_PROXY,
     ];
 
     #[\Override]
