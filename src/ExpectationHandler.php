@@ -105,13 +105,14 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
     {
         $item = new FunctionLikeParameter('item', false, self::generic(PestApi::EXPECTATION, Type::getMixed()), is_optional: false);
         $key = new FunctionLikeParameter('key', false, Type::getArrayKey(), is_optional: false);
-        $expectation->methods['each']->params[0]->type = new Union([new TCallable([$item, $key]), new TNull()]);
+        // Named arguments: Psalm 6's constructor takes a leading `$value`, Psalm 7's does not.
+        $expectation->methods['each']->params[0]->type = new Union([new TCallable(params: [$item, $key]), new TNull()]);
 
         $sequence = $expectation->methods['sequence']->params[0];
         $atomics = [];
         foreach ($sequence->type?->getAtomicTypes() ?? [] as $atomic) {
             if ($atomic instanceof TCallable && $atomic->params !== null) {
-                $atomic = new TCallable([$item, ...\array_slice($atomic->params, 1)], $atomic->return_type);
+                $atomic = new TCallable(params: [$item, ...\array_slice($atomic->params, 1)], return_type: $atomic->return_type);
             }
 
             $atomics[] = $atomic;
