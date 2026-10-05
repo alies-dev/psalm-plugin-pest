@@ -31,6 +31,8 @@
                 <referencedMethod name="Psalm\Internal\Provider\FunctionReturnTypeProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\MethodParamsProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\MethodReturnTypeProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\MethodVisibilityProvider::has" />
+                <referencedMethod name="Psalm\Internal\Provider\MethodVisibilityProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\NodeDataProvider::getType" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::has" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::registerClosure" />
@@ -44,6 +46,7 @@
                 <referencedProperty name="Psalm\Internal\Codebase\Functions::$return_type_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Methods::$params_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Methods::$return_type_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Methods::$visibility_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_existence_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_type_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_visibility_provider" />
