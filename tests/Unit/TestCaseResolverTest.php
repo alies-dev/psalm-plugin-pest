@@ -228,9 +228,29 @@ final class TestCaseResolverTest extends TestCase
     {
         $this->writePest('');
         \mkdir($this->root . '/tests/Helpers', 0o777, true);
-        \file_put_contents($this->root . '/tests/Helpers/Auth.php', '<?php if (true) { uses(Tests\\Other::class)->in("Unit"); }');
+        \file_put_contents($this->root . '/tests/Helpers/Auth.php', '<?php foreach (["Unit"] as $dir) { uses(Tests\\Other::class)->in($dir); }');
 
         $this->assertNull($this->resolve('Unit/MathTest.php'));
+    }
+
+    #[Test]
+    public function config_free_includes_in_the_boot_file_keep_the_suite_resolvable(): void
+    {
+        \mkdir($this->root . '/tests/Support');
+        \file_put_contents($this->root . '/tests/Support/helpers.php', "<?php\nfunction helper(): array { return require __DIR__ . '/x.php'; }");
+        $this->writePest("uses(Tests\\TestCase::class)->in('Feature');\nrequire_once __DIR__ . '/Support/helpers.php';");
+
+        $this->assertSame('Tests\TestCase', $this->resolve('Feature/UserTest.php'));
+    }
+
+    #[Test]
+    public function uses_in_describe_closures_and_if_branches_bind_the_file(): void
+    {
+        $this->writePest("uses(Tests\\TestCase::class)->in('Unit');");
+
+        $this->assertSame('Tests\Other', $this->resolve('Feature/DescribeTest.php', "describe('x', function () { uses(Tests\\Other::class); });\n\$a = ['uses' => 1];"));
+        $this->assertSame('Tests\Other', $this->resolve('Feature/IfTest.php', "if (getenv('W')) { uses(Tests\\Other::class); }"));
+        $this->assertNull($this->resolve('Feature/ElseTest.php', 'if (getenv("W")) { uses(Tests\\Other::class); } else { uses(Tests\\TestCase::class); }'));
     }
 
     private function writePest(string $source): void

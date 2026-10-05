@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Stop reporting `InaccessibleMethod` for protected and private TestCase methods called on `test()`, which Pest forwards through reflection ([#50](https://github.com/alies-dev/psalm-plugin-pest/issues/50)).
 - Pass `Expectation<mixed>` to `each()` / `sequence()` callbacks: `sequence()` no longer reports `UndefinedMagicMethod` on the whole iterable, and `each()` no longer leaves the parameter `mixed` ([#38](https://github.com/alies-dev/psalm-plugin-pest/issues/38)).
 - Stop reporting `UndefinedMagicMethod` on `never` after an `expect()` argument Psalm already failed on ([#39](https://github.com/alies-dev/psalm-plugin-pest/issues/39)).
+- Keep resolving the TestCase when a boot file includes a file by a literal `__DIR__ . '/x.php'` path that holds no `uses()` / `pest()` call (and follow it, declining on cycles, relative or dynamic paths) ([#40](https://github.com/alies-dev/psalm-plugin-pest/issues/40)).
+- Stop treating the strings `'uses'` / `'pest'` as a possible dynamic call when they are array keys or indexes (`['uses' => 10]`, `$route['uses']`) ([#41](https://github.com/alies-dev/psalm-plugin-pest/issues/41)).
+- Ignore `require` / `include` inside named functions and class methods, which do not run while the file loads ([#42](https://github.com/alies-dev/psalm-plugin-pest/issues/42)).
+- Read `uses()` / `pest()` calls inside `describe()` closures like top-level ones, and inside `if` branches as if the condition held; an `if`/`else` that names two classes still leaves the file unbound ([#43](https://github.com/alies-dev/psalm-plugin-pest/issues/43)).
 
 ## [0.2.1] - 2026-10-05
 

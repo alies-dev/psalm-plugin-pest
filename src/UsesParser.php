@@ -32,8 +32,11 @@ use Psalm\Type\TypeVisitor;
  * glob-expanded and realpath'd (`UsesCall::in()`).
  *
  * All-or-nothing: an unreadable `uses()` / `pest()` call (non-literal argument, nested outside a
- * top-level statement, first-class callable, name as a string) or a non-linear file (include, top-level
+ * top-level statement, `describe()` closure or `if` branch, first-class callable, name as a string) or
+ * a non-linear file (an include that is not a plain literal path to an inert file, top-level
  * `return` / `exit`) yields null, as a guessed TestCase is worse than Pest's own `TestCall` binding.
+ * A `uses()` in an `if` branch is read as if the condition held: the branch is where the file's
+ * config is written, and an undecidable `if`/`else` pair yields two classes, which is unknown.
  *
  * `properties`: per `$this->name = ...` in a chain's `beforeEach()` closure, the assignment's `@var`
  * (class names resolved to FQCNs), else the class of a `new`, a scalar literal's type, else `mixed`.
@@ -51,9 +54,10 @@ final class UsesParser
     /**
      * @param bool $bootFile false for a test file: its closures run after Pest resolved the file's
      *                       TestCase, so an include inside one cannot configure it
+     * @param list<string> $including files whose include is being read (guards include cycles)
      * @return list<PestUsesEntry>|null
      */
-    public static function parse(string $filePath, string $contents, bool $bootFile = true): ?array
+    public static function parse(string $filePath, string $contents, bool $bootFile = true, array $including = []): ?array
     {
         // Cheap bail; any mention at all (a comment before the parenthesis, an alias import) takes the AST path.
         if (\preg_match('/\b(?:uses|pest|include|require|include_once|require_once)\b/i', $contents) !== 1) {
@@ -69,7 +73,7 @@ final class UsesParser
         $resolver = new NameResolver();
         $statements = (new NodeTraverser($resolver))->traverse($statements);
 
-        if (!self::isLinear($statements, $bootFile)) {
+        if (!self::isLinear($statements, $filePath, $bootFile, $including)) {
             return null;
         }
 
@@ -104,26 +108,39 @@ final class UsesParser
     }
 
     /**
-     * False when Pest could run config this parser does not see (an include, a string name) or skip
-     * config it does see (top-level `return` / `exit`).
+     * False when Pest could run config this parser does not see (an include it cannot prove inert,
+     * a callable string name) or skip config it does see (top-level `return` / `exit`).
      *
      * @param array<Node> $statements
+     * @param list<string> $including
      */
-    private static function isLinear(array $statements, bool $bootFile): bool
+    private static function isLinear(array $statements, string $filePath, bool $bootFile, array $including): bool
     {
         $finder = new NodeFinder();
-        $deferredIncludes = [];
-        if (!$bootFile) {
-            foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction) as $closure) {
-                foreach ($finder->findInstanceOf($closure, Expr\Include_::class) as $include) {
-                    $deferredIncludes[\spl_object_id($include)] = true;
-                }
+        // Neither can reach `uses()`: a named function or method body does not run while the file
+        // loads (nor does a test closure), and an array key or index is data, never a callee.
+        $inert = [];
+        foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Node\ArrayItem || $node instanceof Expr\ArrayDimFetch) as $node) {
+            $key = match (true) {
+                $node instanceof Node\ArrayItem => $node->key,
+                $node instanceof Expr\ArrayDimFetch => $node->dim,
+                default => null,
+            };
+            if ($key instanceof String_) {
+                $inert[\spl_object_id($key)] = true;
+            }
+        }
+
+        foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Stmt\Function_ || $node instanceof Stmt\ClassMethod
+            || (!$bootFile && ($node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction))) as $body) {
+            foreach ($finder->findInstanceOf($body, Expr\Include_::class) as $include) {
+                $inert[\spl_object_id($include)] = true;
             }
         }
 
         $opaque = $finder->findFirst($statements, static fn(Node $node): bool => match (true) {
-            $node instanceof String_ => \in_array(\strtolower(\ltrim($node->value, '\\')), self::ROOTS, true),
-            $node instanceof Expr\Include_ => !isset($deferredIncludes[\spl_object_id($node)]),
+            $node instanceof String_ => !isset($inert[\spl_object_id($node)]) && \in_array(\strtolower(\ltrim($node->value, '\\')), self::ROOTS, true),
+            $node instanceof Expr\Include_ => !isset($inert[\spl_object_id($node)]) && !self::isInertInclude($node, $filePath, $bootFile, $including),
             default => false,
         });
         if ($opaque instanceof Node) {
@@ -165,6 +182,28 @@ final class UsesParser
     }
 
     /**
+     * A literal absolute path to a readable file that itself reads as config-free: it can then add no
+     * `uses()` (a relative path depends on the include path, so it is not followed).
+     *
+     * @param list<string> $including
+     */
+    private static function isInertInclude(Expr\Include_ $include, string $filePath, bool $bootFile, array $including): bool
+    {
+        $path = self::readValue($include->expr, \dirname($filePath));
+        $real = $path !== null && \str_starts_with($path, \DIRECTORY_SEPARATOR) ? \realpath($path) : false;
+        $including[] = self::realpath($filePath);
+        if ($real === false || !\is_file($real) || \in_array($real, $including, true)) {
+            return false;
+        }
+
+        $contents = \file_get_contents($real);
+
+        return $contents !== false && self::parse($real, $contents, $bootFile, $including) === [];
+    }
+
+    /**
+     * Statements Pest runs while the file loads: the top level, `if` branches and `describe()` closures.
+     *
      * @param array<Node> $statements
      * @return \Generator<int, Expr>
      */
@@ -173,8 +212,28 @@ final class UsesParser
         foreach ($statements as $statement) {
             if ($statement instanceof Stmt\Namespace_) {
                 yield from self::topLevelExpressions($statement->stmts);
+            } elseif ($statement instanceof Stmt\If_) {
+                yield from self::topLevelExpressions($statement->stmts);
+                foreach ($statement->elseifs as $elseif) {
+                    yield from self::topLevelExpressions($elseif->stmts);
+                }
+
+                yield from self::topLevelExpressions($statement->else->stmts ?? []);
             } elseif ($statement instanceof Stmt\Expression) {
                 yield $statement->expr;
+
+                $root = $statement->expr;
+                while ($root instanceof MethodCall) {
+                    $root = $root->var;
+                }
+
+                if ($root instanceof FuncCall && $root->name instanceof Name && \strtolower($root->name->getLast()) === 'describe' && !$root->isFirstClassCallable()) {
+                    foreach ($root->getArgs() as $arg) {
+                        if ($arg->value instanceof Expr\Closure) {
+                            yield from self::topLevelExpressions($arg->value->stmts);
+                        }
+                    }
+                }
             }
         }
     }
