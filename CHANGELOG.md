@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Type `test()` called without arguments inside helper functions of a test file as the bound TestCase ([#29](https://github.com/alies-dev/psalm-plugin-pest/issues/29)).
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
