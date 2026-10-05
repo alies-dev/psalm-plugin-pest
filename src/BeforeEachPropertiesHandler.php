@@ -50,7 +50,10 @@ use Psalm\Type\Union;
  * is order-independent (a test may precede its `beforeEach()`). The type is the union of what Psalm
  * inferred for the assigned expressions, recorded while the closures are analysed, with scalar
  * literals widened and empty arrays / `never` generics (`[]`, `collect()`) opened up; a read analysed
- * before any assignment is `mixed`, and a read in `afterEach()` is also `null`, as `beforeEach()` may have thrown first. Hooks in `Pest.php`
+ * before any assignment is `mixed`, as is a property only ever assigned `null`. A read in `afterEach()` is also `null`, as `beforeEach()`
+ * may have thrown first, but without `PossiblyNull*` issues: only guards see it. Psalm hands that flag on to
+ * members (`$this->x->y`), aliases and merged branches, so in `afterEach()` a fixture's nullable member, or a
+ * null it later picks up, is not reported either. Hooks in `Pest.php`
  * (`pest()->beforeEach(...)->in('Feature')`) seed the types for the files they target ({@see UsesParser}).
  *
  * Instance properties only: Psalm resolves `self::$name` through the same existence provider and,
@@ -101,11 +104,27 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                     return null;
                 }
 
-                $type = ($event->isReadMode() ? self::$types[$name] ?? null : self::$declared[$name] ?? null) ?? Type::getMixed();
+                if (!$event->isReadMode()) {
+                    return self::$declared[$name] ?? Type::getMixed();
+                }
 
-                return $event->isReadMode() && !isset(self::$declared[$name]) && self::inAfterEach($event->getSource())
-                    ? Type::combineUnionTypes($type, Type::getNull())
-                    : $type;
+                $type = self::$types[$name] ?? Type::getMixed();
+                if (isset(self::$declared[$name])) {
+                    return $type;
+                }
+
+                // `null` alone is only the initial state of a property the file assigns elsewhere.
+                if ($type->isNull()) {
+                    return Type::getMixed();
+                }
+
+                if ($type->isNullable() || $type->isMixed() || !self::inAfterEach($event->getSource())) {
+                    return $type;
+                }
+
+                // The `null` keeps guards (`?->`, `isset()`, `!== null`) from being redundant, while
+                // teardown that uses the value as is does not report `PossiblyNull*`.
+                return Type::combineUnionTypes($type, Type::getNull())->setProperties(['ignore_nullable_issues' => true]);
             },
         );
     }

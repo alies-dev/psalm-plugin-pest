@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Support Psalm 6.19+ again, next to Psalm 7.
 
+### Fixed
+
+- Read a property assigned only `null` in `beforeEach()` as `mixed` instead of `null`, so `?->` and `!== null` on it in `afterEach()` are no longer reported as redundant ([#58](https://github.com/alies-dev/psalm-plugin-pest/issues/58)).
+- Stop reporting `PossiblyNullArgument` / `PossiblyNullReference` on plain `afterEach()` reads of a property assigned in `beforeEach()`; only guards (`?->`, `isset()`, `!== null`) see the `null`. The same flag also hides a nullable member of that fixture (`$this->x->y`) there ([#59](https://github.com/alies-dev/psalm-plugin-pest/issues/59)).
+
 ## [0.2.2] - 2026-10-05
 
 ### Fixed

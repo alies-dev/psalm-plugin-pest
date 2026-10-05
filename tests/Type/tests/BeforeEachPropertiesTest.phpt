@@ -140,6 +140,51 @@ namespace {
         /** @psalm-check-type-exact $_token = string */
     });
 
+    // A property set to `null` only is filled elsewhere in the file (#58): it reads as `mixed`.
+    beforeEach(function (): void {
+        $this->server = null;
+        $this->bin = '/tmp/bin';
+        $this->maybe = rand(0, 1) ? new PestBeforeEachFixture\Parser() : null;
+        $this->maybeBin = rand(0, 1) ? '/tmp' : null;
+    });
+
+    test('assigns the null-only property', function (): void {
+        $this->server = new PestBeforeEachFixture\Parser();
+    });
+
+    test('reads the null-only property', function (): void {
+        $_server = $this->server;
+        /** @psalm-check-type-exact $_server = mixed */
+    });
+
+    afterEach(function (): void {
+        // `mixed` (the file assigns it elsewhere), so only the nullsafe call itself is reported.
+        $_stopped = $this->server?->parse('x');
+        if ($this->server !== null) {
+            $_stopped = true;
+        }
+
+        // Plain teardown reads are not reported as possibly null (#59), guards stay meaningful.
+        rmdir($this->bin);
+        $_length = strlen($this->bin);
+        $_parsed = $this->parser->parse('x');
+        $_items = $this->bag->items;
+        $_local = $this->bin;
+        rmdir($_local);
+        array_map(function (int $_n): void {
+            rmdir($this->bin);
+            $_inner = $this->parser->parse('x');
+        }, [1]);
+        $_guarded = $this->bin ?? 'x';
+        if (isset($this->bin) && $this->count !== null) {
+            $_set = true;
+        }
+
+        // A beforeEach() value that can be null keeps reporting.
+        rmdir($this->maybeBin);
+        $_missing = $this->maybe->parse('x');
+    });
+
     test('a name never assigned in beforeEach is still undefined', function (): void {
         $_nope = $this->nope;
         $_nested = $this->fromClosure;
@@ -176,6 +221,9 @@ namespace {
 ?>
 --EXPECTF--
 InvalidScope on line %d: Invalid reference to $this in a non-class context
+MixedMethodCall on line %d: Cannot determine the type of $__tmp_nullsafe__%d when calling method parse
+PossiblyNullArgument on line %d: Argument 1 of rmdir cannot be null, possibly null value provided
+PossiblyNullReference on line %d: Cannot call method parse on possibly null value
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$nope is not defined
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$assigned is not defined
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$unrelated is not defined
