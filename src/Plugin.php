@@ -17,6 +17,7 @@ final class Plugin implements PluginEntryPointInterface
     /** Registration order is hook order where two handlers share an event. */
     private const HANDLERS = [
         InternalDslHandler::class,
+        ExpectationHandler::class,
         ClosureThisHandler::class,
     ];
 
