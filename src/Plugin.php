@@ -20,6 +20,7 @@ final class Plugin implements PluginEntryPointInterface
         ExpectationHandler::class,
         ClosureThisHandler::class,
         CurrentTestHandler::class,
+        BeforeEachPropertiesHandler::class,
     ];
 
     #[\Override]

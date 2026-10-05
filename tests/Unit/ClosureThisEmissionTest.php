@@ -16,7 +16,9 @@ use Symfony\Component\Process\Process;
  * reachable there. This forks a real Psalm over a fixture project whose `tests/Pest.php` maps
  * `Feature/` to a custom TestCase: the Feature test reads a protected member of it (clean, and its
  * `@psalm-check-type-exact` assertions hold), while the Unit test falls back to PHPUnit's TestCase
- * and gets the one expected `UndefinedThisPropertyFetch`.
+ * and gets the one expected `UndefinedThisPropertyFetch`. Two more Feature tests share that TestCase:
+ * one assigns `$this->setupState` in `beforeEach()` (clean), the other reads it and must still be
+ * reported, since a `beforeEach()` property is declared for its own file only.
  */
 #[CoversClass(ClosureThisHandler::class)]
 final class ClosureThisEmissionTest extends TestCase
@@ -47,8 +49,12 @@ final class ClosureThisEmissionTest extends TestCase
             }
         }
 
+        \sort($findings);
         $this->assertSame(
-            ['UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined'],
+            [
+                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',
+                'UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',
+            ],
             $findings,
         );
     }

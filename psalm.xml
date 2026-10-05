@@ -25,12 +25,18 @@
                 <referencedMethod name="Psalm\Internal\Provider\FileProvider::getContents" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionParamsProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionReturnTypeProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\PropertyTypeProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\PropertyVisibilityProvider::registerClosure" />
             </errorLevel>
         </InternalMethod>
         <InternalProperty>
             <errorLevel type="suppress">
                 <referencedProperty name="Psalm\Internal\Codebase\Functions::$params_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Functions::$return_type_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_existence_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_type_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_visibility_provider" />
             </errorLevel>
         </InternalProperty>
     </issueHandlers>

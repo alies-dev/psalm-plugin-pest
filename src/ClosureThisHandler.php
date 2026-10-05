@@ -95,6 +95,10 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface
             return $params;
         }
 
+        // The class `$this` is bound to now exists for this codebase: let the file's beforeEach()
+        // assignments declare their properties on it (see BeforeEachPropertiesHandler).
+        BeforeEachPropertiesHandler::register($codebase, $storage->name);
+
         $param = clone $params[$offset];
         (new \ReflectionProperty(FunctionLikeParameter::class, self::CLOSURE_THIS_TYPE))
             ->setValue($param, new Union([new TNamedObject($storage->name)]));
