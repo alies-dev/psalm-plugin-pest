@@ -1,7 +1,3 @@
---SKIPIF--
-<?php
-require getcwd() . '/vendor/autoload.php';
-\Tests\AliesDev\PsalmPluginPest\Type\PsalmCapability::skipWithoutClosureThis();
 --FILE--
 <?php declare(strict_types=1);
 

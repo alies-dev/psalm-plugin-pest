@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Declare properties assigned to `$this` in a file's `beforeEach()` for that file's tests ([#7](https://github.com/alies-dev/psalm-plugin-pest/issues/7)).
 - Narrow variables after `expect($var)` assertions such as `toBeNull()`, `toBeString()` and `toBeInstanceOf(X::class)`, including `->not` and `->and($other)` ([#8](https://github.com/alies-dev/psalm-plugin-pest/issues/8)).
 
+### Changed
+
+- Require Psalm 7.0.0-rc1 or later; Psalm 6 is no longer supported.
+
 ### Fixed
 
 - `UndefinedMagicMethod` on assertions called through `->not` and `->each` ([#3](https://github.com/alies-dev/psalm-plugin-pest/issues/3)).

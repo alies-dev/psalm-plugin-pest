@@ -26,10 +26,6 @@ final class ClosureThisEmissionTest extends TestCase
     #[Test]
     public function binds_the_pest_php_test_case_per_directory(): void
     {
-        if (!\property_exists(\Psalm\Storage\FunctionLikeParameter::class, 'closure_this_type')) {
-            $this->markTestSkipped('Needs Psalm @param-closure-this support (FunctionLikeParameter::$closure_this_type).');
-        }
-
         $projectRoot = \dirname(__DIR__, 2);
         $process = new Process(
             [\PHP_BINARY, $projectRoot . '/vendor/bin/psalm', '-c', 'psalm.xml', '--no-cache', '--threads=1', '--no-progress', '--output-format=json'],

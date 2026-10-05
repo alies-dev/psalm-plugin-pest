@@ -2,7 +2,7 @@
 
 Makes [Psalm](https://psalm.dev) understand [Pest](https://pestphp.com) test files.
 
-- **`$this` in test closures.** Pest binds every `test()`, `it()`, `beforeEach()` and `afterEach()` closure to a TestCase, so `$this->user` or `$this->actingAs()` is valid code. Pest documents that binding only as `@param-closure-this TestCall`, which Psalm 6.19+ reads literally: every `$this->...` in a test becomes `UndefinedThisPropertyFetch` or `UndefinedMethod` on `TestCall`, plus a `Mixed*` cascade. The plugin binds `$this` to the class Pest actually uses.
+- **`$this` in test closures.** Pest binds every `test()`, `it()`, `beforeEach()` and `afterEach()` closure to a TestCase, so `$this->user` or `$this->actingAs()` is valid code. Pest documents that binding only as `@param-closure-this TestCall`, which Psalm reads literally: every `$this->...` in a test becomes `UndefinedThisPropertyFetch` or `UndefinedMethod` on `TestCall`, plus a `Mixed*` cascade. The plugin binds `$this` to the class Pest actually uses.
 - **Pest's public API.** Pest marks the classes behind `expect()->toBe()`, `uses()->in()`, `pest()->extend()` and `test()->group()` as `@internal`. The plugin stops reporting `InternalMethod` on them. Pest classes outside that API keep reporting.
 - **Expectation chains.** Pest hides its assertions one `@mixin` deeper than Psalm looks, so `expect($x)->not->toBeNull()` and `expect($xs)->each->toBeInt()` reported `UndefinedMagicMethod`. Assertions now resolve through `->not`, `->each` and higher-order expectations, `->not` and `->each` work after an assertion (`expect($xs)->toBeArray()->not->toBeEmpty()`), and higher-order property access (`expect($user)->name->toBe('Ada')`) is accepted. An unknown assertion such as `->not->toBeBananas()` is still reported.
 - **`test()` without arguments.** Inside a test, `test()` is typed as the TestCase the test is bound to, so `test()->get('/')->assertOk()` stops reporting `UndefinedMagicMethod` on Pest's `HigherOrderTapProxy`.
@@ -16,7 +16,7 @@ composer require --dev alies-dev/psalm-plugin-pest
 vendor/bin/psalm-plugin enable alies-dev/psalm-plugin-pest
 ```
 
-Requirements: PHP 8.3+ (Pest 4's floor), Psalm 6.19+ or 7, Pest 4 or 5. Your test directory must be part of `<projectFiles>`.
+Requirements: PHP 8.3+ (Pest 4's floor), Psalm 7.0.0-rc1+, Pest 4 or 5. Your test directory must be part of `<projectFiles>`.
 
 ## How the TestCase is resolved
 
@@ -38,7 +38,6 @@ When the answer is uncertain the plugin keeps Pest's own `TestCall` binding rath
 - `uses()->in()` written in one test file to configure other files is ignored.
 - Analyzing a single test file on its own declines when its TestCase class was not scanned; full project runs are unaffected.
 - The plugin keys on Pest's class names and its `@param-closure-this TestCall` tag. A Pest release that changes them disables the affected feature.
-- Psalm 7.0.0-beta22 has no `@param-closure-this` support, so there `$this` in a test closure is still `InvalidScope`. The `$this` binding, `test()` typing and `beforeEach()` properties need that support (7.0.0-beta24 has it). Expectation chains, narrowing and the `InternalMethod` relief work on every supported version.
 - Custom expectations registered with `expect()->extend()` are invisible to static analysis and are still reported.
 - `expect($obj)->someMethod()`, a higher-order method call on `Pest\Expectation`, is still reported. Higher-order property access works. Higher-order members are typed `mixed`.
 - `beforeEach()` properties: only plain `$this->name = ...` assignments count, not `??=`, list destructuring or `$this->items[] = ...`. Properties assigned inside `describe()` are visible to the whole file. A test analysed before the `beforeEach()` that assigns the property sees it as `mixed`.

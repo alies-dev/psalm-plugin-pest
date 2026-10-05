@@ -24,8 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.3', '8.4', '8.5']
-        # 7.x-dev is vimeo/psalm master (branch alias); 7.0.0-beta22 predates @param-closure-this.
-        psalm: ['^6.19', '7.0.0-beta22', '7.x-dev']
+        # 7.x-dev is vimeo/psalm master (branch alias).
+        psalm: ['^7.0.0-rc1', '7.x-dev']
         pest: ['^4.0', '^5.0']
         exclude:
           # Pest 5 requires PHP 8.4.
