@@ -20,7 +20,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
-- Require Psalm 7.0.0-rc1 or later; Psalm 6 is no longer supported.
+- Require Psalm 7.0.0-rc1 or later (or `dev-master`); Psalm 6 is no longer supported.
 
 ### Fixed
 

@@ -20,7 +20,7 @@
     "require": {
         "php": "^8.3",
         "nikic/php-parser": "^5.0",
-        "vimeo/psalm": "^7.0.0-rc1"
+        "vimeo/psalm": "^7.0.0-rc1 || dev-master"
     },
     "require-dev": {
         "alies-dev/psalm-tester": "^0.4",

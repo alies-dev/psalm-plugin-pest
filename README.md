@@ -19,7 +19,7 @@ composer require --dev alies-dev/psalm-plugin-pest
 vendor/bin/psalm-plugin enable alies-dev/psalm-plugin-pest
 ```
 
-Requirements: PHP 8.3+ (Pest 4's floor), Psalm 7.0.0-rc1+, Pest 4 or 5. Your test directory must be part of `<projectFiles>`.
+Requirements: PHP 8.3+ (Pest 4's floor), Psalm 7.0.0-rc1+ or `dev-master`, Pest 4 or 5. Your test directory must be part of `<projectFiles>`.
 
 ## How the TestCase is resolved
 
