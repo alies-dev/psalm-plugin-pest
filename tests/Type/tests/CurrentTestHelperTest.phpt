@@ -14,6 +14,18 @@ namespace PestCurrentTestHelperFixture {
         {
             return new Response();
         }
+
+        /** @psalm-pure */
+        protected function withoutVite(): string
+        {
+            return 'vite';
+        }
+
+        /** @psalm-pure */
+        private function secret(): int
+        {
+            return 1;
+        }
     }
 
     final class Plain
@@ -39,6 +51,17 @@ namespace {
         return test()->get('/x')->location;
     }
 
+    // Pest calls through reflection, so non-public methods are fine on test() only.
+    function helperNonPublic(PestCurrentTestHelperFixture\TestCase $other): void
+    {
+        $_vite = test()->withoutVite();
+        /** @psalm-check-type-exact $_vite = string */
+        $_secret = test()
+            ->secret();
+        /** @psalm-check-type-exact $_secret = int */
+        echo $other->withoutVite();
+    }
+
     function helperWithDescription(): void
     {
         $_call = test('desc');
@@ -53,3 +76,4 @@ namespace {
 }
 ?>
 --EXPECTF--
+InaccessibleMethod on line %d: Cannot access protected method PestCurrentTestHelperFixture\TestCase::withoutvite
