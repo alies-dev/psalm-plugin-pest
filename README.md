@@ -11,6 +11,7 @@ Makes [Psalm](https://psalm.dev) understand [Pest](https://pestphp.com) test fil
 - **Traits.** `uses(TestCase::class, SomeTrait::class)` and `pest()->extend(TestCase::class)->use(SomeTrait::class)->in(...)` make the trait's methods and properties available on `$this`.
 - **More bound closures.** `$this` is also bound in `->with(function () { ... })` dataset closures and in the closures passed to `->beforeEach()` / `->afterEach()` on a `uses()` / `pest()` chain.
 - **Higher-order tests.** `it('logs in')->actingAsAdmin()` resolves the method on the bound TestCase, checks its arguments and returns the `TestCall`, so `->with()`, `->group()`, `->expect()` and `->and()` keep chaining.
+- **Static test closures.** `PestStaticTestClosure` flags a `static` closure or arrow function passed to `test()`, `it()`, `beforeEach()` or `afterEach()`: Pest cannot bind `$this` to it and aborts the run. `beforeAll()`, `afterAll()` and `describe()` accept static closures and are not reported.
 
 ## Installation
 
