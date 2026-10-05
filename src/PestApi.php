@@ -33,6 +33,9 @@ final class PestApi
     /** What `uses()` / `pest()->extend()` return; its `beforeEach()` / `afterEach()` hook closures run on the TestCase. */
     public const USES_CALL = 'Pest\PendingCalls\UsesCall';
 
+    /** What `describe()` returns; its native return type tells Pest's `describe()` from a project function of that name. */
+    public const DESCRIBE_CALL = 'Pest\PendingCalls\DescribeCall';
+
     /** `->expect()` / `->and()` on a `TestCall`: Pest replays them through this class's own `expect()`. */
     public const HIGHER_ORDER_CALLABLES = 'Pest\Support\HigherOrderCallables';
 
