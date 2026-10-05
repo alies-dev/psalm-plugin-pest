@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Report `PestDuplicateTestDescription` for a test whose description is already registered in the file, at top level or inside `describe()` ([#15](https://github.com/alies-dev/psalm-plugin-pest/issues/15)).
+
 ## [0.2.0] - 2026-10-05
 
 ### Added

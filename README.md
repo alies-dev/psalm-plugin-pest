@@ -11,6 +11,7 @@ Makes [Psalm](https://psalm.dev) understand [Pest](https://pestphp.com) test fil
 - **Traits.** `uses(TestCase::class, SomeTrait::class)` and `pest()->extend(TestCase::class)->use(SomeTrait::class)->in(...)` make the trait's methods and properties available on `$this`.
 - **More bound closures.** `$this` is also bound in `->with(function () { ... })` dataset closures and in the closures passed to `->beforeEach()` / `->afterEach()` on a `uses()` / `pest()` chain.
 - **Higher-order tests.** `it('logs in')->actingAsAdmin()` resolves the method on the bound TestCase, checks its arguments and returns the `TestCall`, so `->with()`, `->group()`, `->expect()` and `->and()` keep chaining.
+- **Duplicate test descriptions.** Two tests with the same description in one file make Pest throw `TestAlreadyExist` when it loads the file. The plugin reports the second one as `PestDuplicateTestDescription`, mirroring Pest's naming: `it('x')` is registered as `it x`, `test('x')` and `todo('x')` as `x`, and a test inside `describe()` is scoped by the enclosing descriptions. Only string-literal descriptions are compared, and only tests written directly in the file or in a `describe()` body (not in loops or conditions).
 
 ## Installation
 
