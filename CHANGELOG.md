@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - Stop reporting `InaccessibleMethod` for protected and private TestCase methods called on `test()`, which Pest forwards through reflection ([#50](https://github.com/alies-dev/psalm-plugin-pest/issues/50)).
+- Pass `Expectation<mixed>` to `each()` / `sequence()` callbacks: `sequence()` no longer reports `UndefinedMagicMethod` on the whole iterable, and `each()` no longer leaves the parameter `mixed` ([#38](https://github.com/alies-dev/psalm-plugin-pest/issues/38)).
+- Stop reporting `UndefinedMagicMethod` on `never` after an `expect()` argument Psalm already failed on ([#39](https://github.com/alies-dev/psalm-plugin-pest/issues/39)).
 
 ## [0.2.1] - 2026-10-05
 

@@ -19,11 +19,14 @@ use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
+use Psalm\Storage\FunctionLikeParameter;
 use Psalm\Type;
 use Psalm\Type\Atomic;
+use Psalm\Type\Atomic\TCallable;
 use Psalm\Type\Atomic\TGenericObject;
 use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNever;
 use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Atomic\TObject;
 use Psalm\Type\Atomic\TTemplateParam;
@@ -82,6 +85,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         self::returnOuterExpectation($assertions);
         self::carryValueTypeIntoProxyProperties($expectation);
+        self::typeIterationCallbacks($expectation);
 
         foreach (self::PROXY_RESULTS as $proxy => $result) {
             self::forwardAssertions($storages[$proxy], $result, $assertions, $expectation);
@@ -90,6 +94,31 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         self::acceptAnyHigherOrderMember($expectation, $storages[PestApi::HIGHER_ORDER_EXPECTATION]);
         self::typeExpectedValue($event->getCodebase());
         self::checkForwardedArguments($event->getCodebase());
+    }
+
+    /**
+     * Pest hands the `each()` / `sequence()` callbacks an expectation of each item. Its signatures leave the first
+     * untyped and make the second an expectation of the whole iterable, which `member()` would report on. The item
+     * type stays `mixed`: `value-of<TValue>` only resolves for arrays, so a collection or `mixed` value would fail.
+     */
+    private static function typeIterationCallbacks(ClassLikeStorage $expectation): void
+    {
+        $item = new FunctionLikeParameter('item', false, self::generic(PestApi::EXPECTATION, Type::getMixed()), is_optional: false);
+        $key = new FunctionLikeParameter('key', false, Type::getArrayKey(), is_optional: false);
+        $expectation->methods['each']->params[0]->type = new Union([new TCallable([$item, $key]), new TNull()]);
+
+        $sequence = $expectation->methods['sequence']->params[0];
+        $atomics = [];
+        foreach ($sequence->type?->getAtomicTypes() ?? [] as $atomic) {
+            if ($atomic instanceof TCallable && $atomic->params !== null) {
+                $atomic = new TCallable([$item, ...\array_slice($atomic->params, 1)], $atomic->return_type);
+            }
+
+            $atomics[] = $atomic;
+        }
+
+        \assert($atomics !== []);
+        $sequence->type = new Union($atomics);
     }
 
     #[\Override]
@@ -203,7 +232,8 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
     private static function memberOf(Atomic $atomic, bool $isMethod, string $name, Codebase $codebase): ?Union
     {
         if (!$atomic instanceof TNamedObject) {
-            $open = $atomic instanceof TMixed || $atomic instanceof TObject || $atomic instanceof TTemplateParam;
+            // `never` is what a value Psalm already failed on is: no second report for it.
+            $open = $atomic instanceof TMixed || $atomic instanceof TNever || $atomic instanceof TObject || $atomic instanceof TTemplateParam;
 
             return $isMethod && !$open ? null : Type::getMixed();
         }
