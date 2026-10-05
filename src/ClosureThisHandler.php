@@ -35,8 +35,6 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface
 {
     private const FUNCTIONS = ['test', 'it', 'beforeeach', 'aftereach'];
 
-    private const PEST_TEST_CALL = 'Pest\PendingCalls\TestCall';
-
     /**
      * `FunctionLikeParameter::$closure_this_type` exists on Psalm 6.19+ and on vimeo/psalm master,
      * but not on Psalm 7.0.0-beta22, so it is reached by name (reflection for the write): the
@@ -127,7 +125,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface
         return $bound instanceof Union
             && $bound->isSingle()
             && $bound->getSingleAtomic() instanceof TNamedObject
-            && $bound->getSingleAtomic()->value === self::PEST_TEST_CALL;
+            && $bound->getSingleAtomic()->value === PestApi::TEST_CALL;
     }
 
     /** @psalm-mutation-free */
