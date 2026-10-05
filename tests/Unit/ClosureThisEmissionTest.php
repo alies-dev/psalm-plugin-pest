@@ -18,7 +18,10 @@ use Symfony\Component\Process\Process;
  * `@psalm-check-type-exact` assertions hold), while the Unit test falls back to PHPUnit's TestCase
  * and gets the one expected `UndefinedThisPropertyFetch`. Two more Feature tests share that TestCase:
  * one assigns `$this->setupState` in `beforeEach()` (clean), the other reads it and must still be
- * reported, since a `beforeEach()` property is declared for its own file only.
+ * reported, since a `beforeEach()` property is declared for its own file only. The Pest.php chain
+ * also binds a trait and a `beforeEach()` property to `Feature/`: Feature/Shared.php reads both
+ * (clean), while the Unit test does not get them. Psalm cannot fetch an undefined property through
+ * a trait in the intersection, so such a fetch in a Feature file adds an `UndefinedClass` for the trait.
  */
 #[CoversClass(ClosureThisHandler::class)]
 final class ClosureThisEmissionTest extends TestCase
@@ -48,7 +51,10 @@ final class ClosureThisEmissionTest extends TestCase
         \sort($findings);
         $this->assertSame(
             [
+                'UndefinedClass: Cannot get properties of undefined class PestClosureThisFixture\CreatesUsers',
+                'UndefinedMethod: Method PHPUnit\Framework\TestCase::createUser does not exist',
                 'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',
+                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$shared is not defined',
                 'UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',
             ],
             $findings,

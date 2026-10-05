@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
-use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\FuncCall;
-use PhpParser\Node\Expr\PropertyFetch;
+use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\StaticPropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
-use PhpParser\Node\Stmt;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
@@ -36,30 +34,22 @@ use Psalm\Type\Atomic\TTrue;
 use Psalm\Type\Union;
 
 /**
- * Declares the properties a test file assigns as `$this->name = ...` in its `beforeEach()` closures
- * on the TestCase `$this` is bound to ({@see ClosureThisHandler}), for that file only.
+ * Declares, for one test file, the properties it assigns as `$this->name = ...` in `beforeEach()`
+ * closures on the TestCase `$this` is bound to ({@see ClosureThisHandler}). Declaring them on the
+ * shared TestCase would leak one file's fixtures into every other file bound to it, so the property
+ * existence / type / visibility providers answer from the state of the file being analysed and
+ * decline (null) for everything else, declared properties included.
  *
- * `beforeEach()` is Pest's setup hook: `$this->parser = new Parser` there is read by every test of
- * the file, which Psalm reports as `UndefinedThisPropertyAssignment` / `UndefinedThisPropertyFetch`
- * on a class that declares no such property. Declaring them on the shared TestCase would leak one
- * file's fixtures into every other file bound to it, so property existence / type / visibility
- * providers answer from the state of the file being analysed and decline (null) for everything else,
- * declared properties included.
+ * {@see self::beforeAnalyzeFile()} reads that state off Psalm's own name-resolved statements, so it
+ * is order-independent (a test may precede its `beforeEach()`). The type is the union of what Psalm
+ * inferred for the assigned expressions, recorded while the closures are analysed, with scalar
+ * literals widened; a read analysed before any assignment is `mixed`. Hooks in `Pest.php`
+ * (`pest()->beforeEach(...)->in('Feature')`) seed the types for the files they target ({@see UsesParser}).
  *
- * {@see self::beforeAnalyzeFile()} reads that state off Psalm's own statements, so it is
- * order-independent (a test may precede the `beforeEach()` that sets its state, as at runtime) and
- * rebuilt on every analysis of the file. The `beforeEach` call is recognised by its resolved name
- * (`use function beforeEach as setup` counts; a namespaced `Other\beforeEach()` does not). The type
- * is the union of what Psalm inferred for the assigned expressions, recorded while the closures are
- * analysed; a read analysed before any assignment, or of an untyped value, is `mixed`. Scalar
- * literals are widened (`$this->count = 0` is `int`, not `0`), as a declared property would be.
- * Assignments accept any value: a second `beforeEach()` may assign a different type.
- *
- * Fixtures are instance properties only. Psalm resolves `self::$name` / `static::$name` through the
- * same existence provider and, once it answers true, reads a static property record the TestCase
- * does not have (an undefined-key crash). The event carries neither the access kind nor a reliable
- * node, so the file's static accesses to the TestCase are recorded too and the providers decline
- * those names: Psalm then reports its usual undefined static property issue.
+ * Instance properties only: Psalm resolves `self::$name` through the same existence provider and,
+ * once it answers true, reads a static property record the TestCase does not have (an undefined-key
+ * crash). The event carries neither the access kind nor a reliable node, so the file's static
+ * accesses to the TestCase are recorded and the providers decline those names.
  */
 final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, BeforeFileAnalysisInterface
 {
@@ -72,10 +62,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> */
     private static array $types = [];
 
-    /**
-     * Asks for the providers on one bound TestCase; Psalm keeps them per class name and every Pest
-     * call in the project reaches here.
-     */
+    /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
     public static function register(Codebase $codebase, string $testCase): void
     {
         $properties = $codebase->properties;
@@ -113,7 +100,8 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             return null;
         }
 
-        $assigned = self::widen($event->getStatementsSource()->getNodeTypeProvider()->getType($expr->expr) ?? Type::getMixed());
+        // The context holds what the assignment left on the property, a `@var` on it included.
+        $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed());
         self::$types[$name] = isset(self::$types[$name])
             ? Type::combineUnionTypes(self::$types[$name], $assigned, $event->getCodebase())
             : $assigned;
@@ -122,48 +110,32 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     }
 
     /**
-     * Rebuilds the file's state from Psalm's name-resolved statements; the types are a union across
-     * assignments, so a reused codebase (language server, watch mode) must not add a new analysis to
-     * the previous one's.
+     * Rebuilds the file's state; the types are a union across assignments, so a reused codebase
+     * (language server, watch mode) must not add a new analysis to the previous one's.
      */
     #[\Override]
     public static function beforeAnalyzeFile(BeforeFileAnalysisEvent $event): void
     {
-        self::$types = [];
+        // Pest.php hooks that target this file seed the types, so they union with its own assignments.
+        self::$types = BoundTestCase::properties($event->getCodebase(), $event->getFileStorage()->file_path);
         self::$assignments = [];
         self::$statics = [];
 
         $finder = new NodeFinder();
         $stmts = $event->getStmts();
         $declaredFunctions = $event->getFileStorage()->declaring_function_ids;
-        foreach ($finder->findInstanceOf($stmts, FuncCall::class) as $call) {
+        foreach ([...$finder->findInstanceOf($stmts, FuncCall::class), ...$finder->findInstanceOf($stmts, MethodCall::class)] as $call) {
             $closure = self::beforeEachClosure($call, $declaredFunctions);
             if ($closure === null) {
                 continue;
             }
 
-            // A nested class, function or static closure has a `$this` of its own.
-            $foreign = [];
-            foreach ($finder->find($closure->getStmts(), self::rebindsThis(...)) as $scope) {
-                foreach ($finder->findInstanceOf($scope, Assign::class) as $assign) {
-                    $foreign[\spl_object_id($assign)] = true;
-                }
-            }
-
-            foreach ($finder->findInstanceOf($closure->getStmts(), Assign::class) as $assign) {
-                $target = $assign->var;
-                if ($target instanceof PropertyFetch
-                    && $target->var instanceof Variable
-                    && $target->var->name === 'this'
-                    && $target->name instanceof Identifier
-                    && !isset($foreign[\spl_object_id($assign)])
-                ) {
-                    self::$assignments[$assign->getStartFilePos()] = $target->name->name;
-                }
+            foreach (UsesParser::thisAssignments($closure) as $name => [$assign]) {
+                self::$assignments[$assign->getStartFilePos()] = $name;
             }
         }
 
-        if (self::$assignments === []) {
+        if (self::$assignments === [] && self::$types === []) {
             return;
         }
 
@@ -180,48 +152,45 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
 
     /**
      * Whether the file's `beforeEach()` declares `$name` on the TestCase. A property the TestCase
-     * declares itself keeps resolving through its own storage, so it is never answered here.
+     * declares itself keeps resolving through its own storage.
      */
     private static function declares(Codebase $codebase, string $testCase, string $name): bool
     {
-        return \in_array($name, self::$assignments, true)
+        return (isset(self::$types[$name]) || \in_array($name, self::$assignments, true))
             && !isset(self::$statics['self::' . $name])
             && !isset(self::$statics[\strtolower($testCase) . '::' . $name])
             && !isset($codebase->classlike_storage_provider->get($testCase)->appearing_property_ids[$name]);
     }
 
     /**
-     * The closure handed to Pest's `beforeEach(...)` call that keeps the bound `$this`, if any.
-     *
-     * An unqualified call inside a namespace only falls back to the global function at runtime when
-     * the namespace has no function of that name, so a function declared in this file wins.
+     * The closure handed to Pest's `beforeEach(...)` call, or to the `->beforeEach(...)` of a
+     * `pest()` / `uses()` chain, that keeps the bound `$this`. An unqualified call inside a namespace
+     * falls back to the global function only when the namespace declares none, so a function
+     * declared in this file wins.
      *
      * @param array<string, string> $declaredFunctions the file's function ids
      */
-    private static function beforeEachClosure(FuncCall $call, array $declaredFunctions): Expr\Closure|Expr\ArrowFunction|null
+    private static function beforeEachClosure(FuncCall|MethodCall $call, array $declaredFunctions): Expr\Closure|Expr\ArrowFunction|null
     {
-        if (!$call->name instanceof Name || $call->isFirstClassCallable()) {
+        if ($call->isFirstClassCallable()) {
             return null;
         }
 
-        [$function, $shadow] = NameResolution::functionName($call->name);
-        if ($function !== 'beforeeach' || ($shadow !== null && isset($declaredFunctions[$shadow]))) {
-            return null;
+        if ($call instanceof MethodCall) {
+            $isHook = $call->name instanceof Identifier && \strtolower($call->name->name) === 'beforeeach';
+        } elseif ($call->name instanceof Name) {
+            $shadow = NameResolution::resolved($call->name, 'namespacedName');
+            $isHook = \strtolower(NameResolution::resolved($call->name) ?? $call->name->toString()) === 'beforeeach'
+                && !isset($declaredFunctions[\strtolower($shadow ?? '')]);
+        } else {
+            $isHook = false;
         }
 
-        $closure = $call->getArgs()[0]->value ?? null;
+        $closure = $isHook ? $call->getArgs()[0]->value ?? null : null;
 
         return ($closure instanceof Expr\Closure || $closure instanceof Expr\ArrowFunction) && !$closure->static
             ? $closure
             : null;
-    }
-
-    /** @psalm-mutation-free */
-    private static function rebindsThis(Node $node): bool
-    {
-        return $node instanceof Stmt\ClassLike
-            || $node instanceof Stmt\Function_
-            || (($node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction) && $node->static);
     }
 
     /** @psalm-mutation-free */

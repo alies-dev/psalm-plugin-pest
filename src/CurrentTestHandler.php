@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
-use Psalm\Codebase;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\FunctionReturnTypeProviderEvent;
@@ -12,76 +11,38 @@ use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Union;
 
 /**
- * Types `test()` called without arguments inside a test as the TestCase that test runs on.
+ * Types `test()` called without arguments inside a test as the TestCase the test runs on.
  *
- * Pest declares `test()` as `($description is string ? TestCall : HigherOrderTapProxy|TestCall)`.
- * The `HigherOrderTapProxy` wraps the running TestCase and forwards method calls and property
- * reads/writes to it (`test()->get('/')->assertOk()`), but it declares no `@mixin`, so Psalm
- * reports `UndefinedMagicMethod` for every forwarded call.
- *
- * A handler, not a stub: the class differs per test file. The binding is already known at the call
- * site: {@see ClosureThisHandler} makes the closure's scope the TestCase, and nested closures and
- * arrow functions inherit it, so the call's context `self` is the answer. Outside such a closure
- * `self` is not a TestCase and the call keeps Pest's own return type.
- *
- * Registered at AfterCodebasePopulated only when the scanned `test()` is Pest's, recognised by the
- * proxy in its native return type, so a project's unrelated global `test()` is never touched.
+ * Pest returns `HigherOrderTapProxy|TestCall` there; the proxy forwards calls to the TestCase but
+ * declares no `@mixin`, so Psalm reports `UndefinedMagicMethod`. {@see ClosureThisHandler} already
+ * makes the closure's scope the TestCase (nested closures inherit it), so the call's context
+ * `self` is the answer. Registered only when the scanned `test()` has the proxy in its native
+ * return type, so a project's own global `test()` is never touched.
  */
 final class CurrentTestHandler implements AfterCodebasePopulatedInterface
 {
-    private const FUNCTION = 'test';
-
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
     {
         $functions = $event->getCodebase()->functions;
-        if (!$functions->hasStubbedFunction(self::FUNCTION)
-            || !self::returnsTapProxy($functions->getStorage(null, self::FUNCTION)->signature_return_type)
+        if (!$functions->hasStubbedFunction('test')
+            || !isset($functions->getStorage(null, 'test')->signature_return_type?->getAtomicTypes()[PestApi::HIGHER_ORDER_TAP_PROXY])
         ) {
             return;
         }
 
         $functions->return_type_provider->registerClosure(
-            self::FUNCTION,
-            static fn(FunctionReturnTypeProviderEvent $event): ?Union => self::getFunctionReturnType($event),
+            'test',
+            static function (FunctionReturnTypeProviderEvent $event): ?Union {
+                $self = $event->getContext()->self;
+                $codebase = $event->getStatementsSource()->getCodebase();
+
+                // Null keeps Pest's type: a description was given, or the call is outside a TestCase-bound closure.
+                return $event->getCallArgs() === [] && $self !== null
+                    && ($self === TestCaseResolver::DEFAULT_TEST_CASE || $codebase->classExtends($self, TestCaseResolver::DEFAULT_TEST_CASE))
+                    ? new Union([new TNamedObject($self)])
+                    : null;
+            },
         );
-    }
-
-    /**
-     * Null keeps Pest's declared return type: a description was given (a `TestCall`), or the call
-     * is not inside a closure bound to a TestCase.
-     */
-    public static function getFunctionReturnType(FunctionReturnTypeProviderEvent $event): ?Union
-    {
-        if ($event->getCallArgs() !== []) {
-            return null;
-        }
-
-        $self = $event->getContext()->self;
-        if ($self === null || !self::isTestCase($event->getStatementsSource()->getCodebase(), $self)) {
-            return null;
-        }
-
-        return new Union([new TNamedObject($self)]);
-    }
-
-    /** @psalm-pure */
-    private static function returnsTapProxy(?Union $returnType): bool
-    {
-        return $returnType instanceof \Psalm\Type\Union && isset($returnType->getAtomicTypes()[PestApi::HIGHER_ORDER_TAP_PROXY]);
-    }
-
-    /**
-     * The populated parent list, not the Codebase, whose class lookups throw for a class without storage.
-     *
-     * @psalm-mutation-free
-     */
-    private static function isTestCase(Codebase $codebase, string $class): bool
-    {
-        $storage = BoundTestCase::storage($codebase, $class);
-
-        return $storage instanceof \Psalm\Storage\ClassLikeStorage
-            && ($storage->name === TestCaseResolver::DEFAULT_TEST_CASE
-                || isset($storage->parent_classes[\strtolower(TestCaseResolver::DEFAULT_TEST_CASE)]));
     }
 }

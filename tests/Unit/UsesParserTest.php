@@ -38,7 +38,7 @@ final class UsesParserTest extends TestCase
     public function uses_in_relative_directory(): void
     {
         $this->assertSame(
-            [['classes' => ['Tests\TestCase', 'Illuminate\Foundation\Testing\RefreshDatabase'], 'targets' => [$this->root . '/tests/Feature']]],
+            [['classes' => ['Tests\TestCase', 'Illuminate\Foundation\Testing\RefreshDatabase'], 'targets' => [$this->root . '/tests/Feature'], 'properties' => []]],
             $this->parsePest(<<<'PHP'
                 use Tests\TestCase;
                 uses(TestCase::class, Illuminate\Foundation\Testing\RefreshDatabase::class)->in('Feature');
@@ -50,7 +50,7 @@ final class UsesParserTest extends TestCase
     public function pest_extend_chain_with_several_targets_and_ignored_calls(): void
     {
         $this->assertSame(
-            [['classes' => ['Tests\TestCase', 'Tests\Concerns\Seeds'], 'targets' => [$this->root . '/tests/Feature', $this->root . '/tests/Unit']]],
+            [['classes' => ['Tests\TestCase', 'Tests\Concerns\Seeds'], 'targets' => [$this->root . '/tests/Feature', $this->root . '/tests/Unit'], 'properties' => []]],
             $this->parsePest(<<<'PHP'
                 namespace Tests;
                 pest()->extend(TestCase::class)->use(Concerns\Seeds::class)->group('db')->in('Feature', 'Unit');
@@ -63,8 +63,8 @@ final class UsesParserTest extends TestCase
     {
         $this->assertSame(
             [
-                ['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests']],
-                ['classes' => ['Tests\ApiCase'], 'targets' => [$this->root . '/tests/Feature/Api']],
+                ['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests'], 'properties' => []],
+                ['classes' => ['Tests\ApiCase'], 'targets' => [$this->root . '/tests/Feature/Api'], 'properties' => []],
             ],
             $this->parsePest(<<<'PHP'
                 uses(Tests\TestCase::class)->in(__DIR__);
@@ -77,7 +77,7 @@ final class UsesParserTest extends TestCase
     public function glob_targets_are_expanded_and_missing_ones_dropped(): void
     {
         $this->assertSame(
-            [['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests/Feature/Api/UserTest.php']]],
+            [['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests/Feature/Api/UserTest.php'], 'properties' => []]],
             $this->parsePest("uses(Tests\\TestCase::class)->in('Feature/*/*Test.php', 'Missing');"),
         );
     }
@@ -87,8 +87,8 @@ final class UsesParserTest extends TestCase
     {
         $this->assertSame(
             [
-                ['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests']],
-                ['classes' => ['Tests\Other'], 'targets' => [$this->pestFile]],
+                ['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests'], 'properties' => []],
+                ['classes' => ['Tests\Other'], 'targets' => [$this->pestFile], 'properties' => []],
             ],
             $this->parsePest("pest()->extend(Tests\\TestCase::class);\nuses(Tests\\Other::class);"),
         );
@@ -101,8 +101,8 @@ final class UsesParserTest extends TestCase
 
         $this->assertSame(
             [
-                ['classes' => ['Tests\ApiCase'], 'targets' => [$testFile]],
-                ['classes' => ['Tests\Other'], 'targets' => [$testFile]],
+                ['classes' => ['Tests\ApiCase'], 'targets' => [$testFile], 'properties' => []],
+                ['classes' => ['Tests\Other'], 'targets' => [$testFile], 'properties' => []],
             ],
             UsesParser::parse($testFile, "<?php\nuses(Tests\\ApiCase::class);\npest()->extend(Tests\\Other::class);\ntest('x', fn () => 1);"),
         );
@@ -117,7 +117,7 @@ final class UsesParserTest extends TestCase
         $source = "<?php\nuses(Tests\\ApiCase::class);\ntest('x', function () { \$m = require 'migration.php'; });";
 
         $this->assertSame(
-            [['classes' => ['Tests\ApiCase'], 'targets' => [$testFile]]],
+            [['classes' => ['Tests\ApiCase'], 'targets' => [$testFile], 'properties' => []]],
             UsesParser::parse($testFile, $source, bootFile: false),
         );
         $this->assertNull(UsesParser::parse($testFile, $source));
@@ -125,10 +125,52 @@ final class UsesParserTest extends TestCase
     }
 
     #[Test]
+    public function aliased_function_import_is_resolved(): void
+    {
+        $this->assertSame(
+            [['classes' => ['Tests\TestCase'], 'targets' => [$this->pestFile], 'properties' => []]],
+            $this->parsePest("use function uses as bindCase;\nbindCase(Tests\\TestCase::class);"),
+        );
+    }
+
+    #[Test]
+    public function before_each_hooks_declare_typed_properties(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase', 'Tests\Concerns\CreatesUsers'],
+                'targets' => [$this->root . '/tests/Feature'],
+                'properties' => [
+                    'user' => ['Tests\Models\User'],
+                    'admin' => ['Tests\Models\Admin'],
+                    'count' => ['int'],
+                    'flag' => ['bool'],
+                    'other' => ['mixed', 'string'],
+                    'nested' => ['int'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                namespace Tests;
+                use Tests\Models as M;
+                pest()->extend(TestCase::class)->use(Concerns\CreatesUsers::class)->beforeEach(function () {
+                    $this->user = new Models\User();
+                    /** @var M\Admin */
+                    $this->admin = $this->make();
+                    $this->count = 0;
+                    $this->flag = true;
+                    $this->other = foo();
+                    (function () { $this->nested = 1; })();
+                    $static = static function () { $this->ignored = 1; };
+                })->beforeEach(fn () => $this->other = 'x')->in('Feature');
+                PHP),
+        );
+    }
+
+    #[Test]
     public function comments_between_name_and_arguments_still_parse(): void
     {
         $this->assertSame(
-            [['classes' => ['Tests\TestCase'], 'targets' => [$this->pestFile]]],
+            [['classes' => ['Tests\TestCase'], 'targets' => [$this->pestFile], 'properties' => []]],
             $this->parsePest('uses /* comment */ (Tests\TestCase::class);'),
         );
     }
@@ -137,7 +179,7 @@ final class UsesParserTest extends TestCase
     public function returns_inside_function_bodies_do_not_decline(): void
     {
         $this->assertSame(
-            [['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests']]],
+            [['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests'], 'properties' => []]],
             $this->parsePest("function helper(): int { return 1; }\npest()->extend(Tests\\TestCase::class);"),
         );
     }
@@ -163,7 +205,6 @@ final class UsesParserTest extends TestCase
         yield 'nested in a closure' => ['beforeEach(function () { uses(Tests\TestCase::class); });'];
         yield 'parse error' => ['uses(Tests\TestCase::class)->in('];
         // External review findings: every shape Pest honors but this parser cannot model declines.
-        yield 'aliased function import' => ["use function uses as bindCase;\nbindCase(Tests\\TestCase::class);"];
         yield 'function name as string' => ["call_user_func('uses', Tests\\TestCase::class);"];
         yield 'early return before config' => ["if (getenv('PEST_USE_DEFAULT')) {\n    return;\n}\npest()->extend(Tests\\TestCase::class);"];
         yield 'exit before config' => ["getenv('CI') or exit;\npest()->extend(Tests\\TestCase::class);"];

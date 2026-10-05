@@ -5,22 +5,20 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 /**
- * Answers which TestCase class Pest binds a test file's closures to, from every file
- * `Pest\Bootstrappers\BootFiles::boot()` loads (`Pest.php`, `Helpers.php`, `Expectations.php`, the
- * `Helpers/` and `Expectations/` trees, and dataset files) plus the file's own `uses()` / `pest()->extend()` calls,
- * following `Pest\Repositories\TestRepository::make()`:
- * a file target matches by equality, a directory target by path prefix, traits never decide the
- * class, and more than one class for one file is a runtime `TestCaseAlreadyInUse`.
+ * Which TestCase class Pest binds a test file's closures to, from the file's own `uses()` /
+ * `pest()->extend()` calls plus every file `Pest\Bootstrappers\BootFiles::boot()` loads, following
+ * `Pest\Repositories\TestRepository::make()`: a file target matches by equality, a directory target
+ * by path prefix, traits never decide the class, and two classes for one file are a runtime
+ * `TestCaseAlreadyInUse`. The `beforeEach()` properties of every matching entry are merged.
  *
- * `null` means "unknown": the handler then keeps Pest's own `@param-closure-this TestCall`.
- * PHPUnit's default is only claimed inside the test directory those files govern (a monorepo
- * package's own tests may have their own `Pest.php`).
+ * `null` means "unknown": the handler keeps Pest's own `@param-closure-this TestCall`. PHPUnit's
+ * default is only claimed inside the test directory (a monorepo package may have its own `Pest.php`).
  *
  * @psalm-import-type PestUsesEntry from UsesParser
+ * @psalm-type TestCaseBinding = array{class: string, traits: list<string>, properties: array<string, non-empty-list<string>>}
  */
 final class TestCaseResolver
 {
-    /** Pest's default when nothing in `uses()` / `pest()` applies to the file. */
     public const DEFAULT_TEST_CASE = 'PHPUnit\Framework\TestCase';
 
     /** `Pest\Bootstrappers\BootFiles::STRUCTURE` (pest v4.7.0): files, or directories loaded recursively. */
@@ -29,28 +27,26 @@ final class TestCaseResolver
     /** `Pest\Support\DatasetInfo`: files with this name, and files under a directory with this name. */
     private const DATASETS = 'Datasets';
 
-    /**
-     * Parsed boot files per test directory, wrapped so a `null` (no `Pest.php`, or an unreadable
-     * file) is cached too.
-     *
-     * @var array<string, array{0: list<PestUsesEntry>|null}>
-     */
+    /** @var array<string, array{0: list<PestUsesEntry>|null}> boot files per test directory; wrapped so a null is cached too */
     private static array $configs = [];
 
-    /** @var array<string, array{0: ?string}> */
+    /** @var array<string, array{0: ?TestCaseBinding}> */
     private static array $resolved = [];
 
     /**
-     * @param \Closure(string): ?bool $isClass true for a class, false for a trait or interface,
-     *                                         null when the name is unknown
+     * @param \Closure(string): ?bool $isClass true for a class, false for a trait or interface, null when unknown
+     * @return TestCaseBinding|null
      */
-    public static function resolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?string
+    public static function resolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?array
     {
         return (self::$resolved[$testFile] ??= [self::doResolve($testsDir, $testFile, $testContents, $isClass)])[0];
     }
 
-    /** @param \Closure(string): ?bool $isClass */
-    private static function doResolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?string
+    /**
+     * @param \Closure(string): ?bool $isClass
+     * @return TestCaseBinding|null
+     */
+    private static function doResolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?array
     {
         $inFile = UsesParser::parse($testFile, $testContents, bootFile: false);
         if ($inFile === null) {
@@ -61,11 +57,14 @@ final class TestCaseResolver
         $realTestFile = UsesParser::realpath($testFile);
 
         $candidates = [];
+        $traits = [];
+        $properties = [];
         foreach ([...$inFile, ...$config ?? []] as $entry) {
             if (!self::targets($entry['targets'], $realTestFile)) {
                 continue;
             }
 
+            $properties = \array_merge_recursive($properties, $entry['properties']);
             foreach ($entry['classes'] as $class) {
                 $kind = $isClass($class);
                 if ($kind === null) {
@@ -74,28 +73,25 @@ final class TestCaseResolver
 
                 if ($kind) {
                     $candidates[\strtolower($class)] = $class;
+                } else {
+                    $traits[\strtolower($class)] = $class;
                 }
             }
         }
 
-        if ($candidates !== []) {
-            return \count($candidates) === 1 ? \reset($candidates) : null;
-        }
-
         // Without readable boot files a directory-wide TestCase may exist that was not seen.
-        return $config !== null && self::targets([UsesParser::realpath($testsDir)], $realTestFile)
-            ? self::DEFAULT_TEST_CASE
-            : null;
+        $class = $candidates === []
+            ? ($config !== null && self::targets([UsesParser::realpath($testsDir)], $realTestFile) ? self::DEFAULT_TEST_CASE : null)
+            : (\count($candidates) === 1 ? \reset($candidates) : null);
+
+        return $class === null ? null : ['class' => $class, 'traits' => \array_values($traits), 'properties' => $properties];
     }
 
     /** @return list<PestUsesEntry>|null */
     private static function loadConfig(string $testsDir): ?array
     {
         $realTestsDir = \realpath($testsDir);
-        $files = $realTestsDir === false || !\is_file($realTestsDir . \DIRECTORY_SEPARATOR . 'Pest.php')
-            ? null
-            : self::bootFiles($realTestsDir);
-
+        $files = $realTestsDir !== false && \is_file($realTestsDir . \DIRECTORY_SEPARATOR . 'Pest.php') ? self::bootFiles($realTestsDir) : null;
         if ($files === null) {
             return null;
         }

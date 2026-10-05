@@ -30,6 +30,12 @@ final class PestApi
     /** What `@param-closure-this` names on `test()` / `it()` / `beforeEach()` / `afterEach()`. */
     public const TEST_CALL = 'Pest\PendingCalls\TestCall';
 
+    /** What `uses()` / `pest()->extend()` return; its `beforeEach()` / `afterEach()` hook closures run on the TestCase. */
+    public const USES_CALL = 'Pest\PendingCalls\UsesCall';
+
+    /** `->expect()` / `->and()` on a `TestCall`: Pest replays them through this class's own `expect()`. */
+    public const HIGHER_ORDER_CALLABLES = 'Pest\Support\HigherOrderCallables';
+
     /** `test()` without arguments inside a running test: forwards to the bound TestCase. */
     public const HIGHER_ORDER_TAP_PROXY = 'Pest\Support\HigherOrderTapProxy';
 }

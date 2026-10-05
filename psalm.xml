@@ -28,6 +28,8 @@
                 <referencedMethod name="Psalm\Internal\Provider\FileProvider::getContents" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionParamsProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\FunctionReturnTypeProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\MethodParamsProvider::registerClosure" />
+                <referencedMethod name="Psalm\Internal\Provider\MethodReturnTypeProvider::registerClosure" />
                 <referencedMethod name="Psalm\Internal\Provider\NodeDataProvider::getType" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::has" />
                 <referencedMethod name="Psalm\Internal\Provider\PropertyExistenceProvider::registerClosure" />
@@ -39,10 +41,18 @@
             <errorLevel type="suppress">
                 <referencedProperty name="Psalm\Internal\Codebase\Functions::$params_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Functions::$return_type_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Methods::$params_provider" />
+                <referencedProperty name="Psalm\Internal\Codebase\Methods::$return_type_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_existence_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_type_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_visibility_provider" />
+                <referencedProperty name="Psalm\Internal\MethodIdentifier::$fq_class_name" />
             </errorLevel>
         </InternalProperty>
+        <InternalClass>
+            <errorLevel type="suppress">
+                <referencedClass name="Psalm\Internal\Analyzer\ClassLikeAnalyzer" />
+            </errorLevel>
+        </InternalClass>
     </issueHandlers>
 </psalm>

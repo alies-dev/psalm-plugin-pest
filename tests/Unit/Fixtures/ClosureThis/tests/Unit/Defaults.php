@@ -9,3 +9,8 @@ test('falls back to the PHPUnit TestCase', function (): void {
     $this->assertTrue(true);
     $_value = $this->featureOnly;
 });
+
+test('does not get the Feature trait or hook property', function (): void {
+    $_user = $this->createUser();
+    $_shared = $this->shared;
+});
