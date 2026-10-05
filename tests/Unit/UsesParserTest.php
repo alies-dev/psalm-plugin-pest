@@ -143,6 +143,7 @@ final class UsesParserTest extends TestCase
                 'properties' => [
                     'user' => ['Tests\Models\User'],
                     'admin' => ['Tests\Models\Admin'],
+                    'absolute' => ['App\User'],
                     'count' => ['int'],
                     'flag' => ['bool'],
                     'other' => ['mixed', 'string'],
@@ -156,6 +157,8 @@ final class UsesParserTest extends TestCase
                     $this->user = new Models\User();
                     /** @var M\Admin */
                     $this->admin = $this->make();
+                    /** @var \App\User */
+                    $this->absolute = $this->make();
                     $this->count = 0;
                     $this->flag = true;
                     $this->other = foo();

@@ -30,7 +30,7 @@ final class TestCaseResolver
     /** @var array<string, array{0: list<PestUsesEntry>|null}> boot files per test directory; wrapped so a null is cached too */
     private static array $configs = [];
 
-    /** @var array<string, array{0: ?TestCaseBinding}> */
+    /** @var array<string, array{0: string, 1: ?TestCaseBinding}> content hash and binding per test file */
     private static array $resolved = [];
 
     /**
@@ -39,7 +39,18 @@ final class TestCaseResolver
      */
     public static function resolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?array
     {
-        return (self::$resolved[$testFile] ??= [self::doResolve($testsDir, $testFile, $testContents, $isClass)])[0];
+        $hash = \md5($testContents);
+        if (($cached = self::$resolved[$testFile] ?? null) !== null && $cached[0] === $hash) {
+            return $cached[1];
+        }
+
+        // The language server reanalyses an edited file (possibly Pest.php itself) without reinitialising the plugin.
+        if ($cached !== null) {
+            self::$configs = [];
+            self::$resolved = [];
+        }
+
+        return (self::$resolved[$testFile] = [$hash, self::doResolve($testsDir, $testFile, $testContents, $isClass)])[1];
     }
 
     /**

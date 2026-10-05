@@ -27,6 +27,22 @@ namespace OtherNs {
     beforeEach(function (): void {
         $this->unrelated = 1;
     });
+
+    // Nor is a beforeEach() method of another class.
+    final class Service
+    {
+        public int $foreign = 0;
+
+        /** @param-closure-this Service $setup */
+        public function beforeEach(\Closure $setup): void
+        {
+            $setup();
+        }
+    }
+
+    (new Service())->beforeEach(function (): void {
+        $this->foreign = 1;
+    });
 }
 
 namespace {
@@ -104,6 +120,7 @@ namespace {
         $_aliased = $this->aliased;
         /** @psalm-check-type-exact $_aliased = int */
         $_unrelated = $this->unrelated;
+        $_foreign = $this->foreign;
     });
 
     // Fixtures are instance properties: a static access to one stays undefined, and never crashes. The
@@ -116,6 +133,8 @@ namespace {
         $_self = self::$fixture;
         $_static = static::$fixture;
         self::$fixture = 2;
+        $class = PestBeforeEachFixture\TestCase::class;
+        $_dynamic = $class::$fixture;
     });
 }
 ?>
@@ -124,8 +143,10 @@ InvalidScope on line %d: Invalid reference to $this in a non-class context
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$nope is not defined
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$assigned is not defined
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$unrelated is not defined
+UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$foreign is not defined
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyAssignment on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
+UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined

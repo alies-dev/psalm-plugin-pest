@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
+use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Identifier;
+use Psalm\Codebase;
 use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
@@ -18,13 +22,17 @@ use Psalm\Type\Union;
 
 /**
  * Resolves Pest's higher-order tests, `it('x')->actingAsAdmin()->group('g')`: `TestCall::__call()`
- * replays the call on the file's bound TestCase (or one of its bound traits) and returns the
- * `TestCall`, which keeps chaining. `->expect()` / `->and()` start an `Expectation` of `mixed`.
- * Other names keep Psalm's `UndefinedMagicMethod`.
+ * records the call and returns the `TestCall`; Pest later replays the recorded calls on the file's
+ * bound TestCase (or one of its bound traits), each on the previous call's non-null result.
+ * `->expect()` / `->and()` start an `Expectation` of `mixed`. Other names keep Psalm's
+ * `UndefinedMagicMethod`.
  */
 final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
 {
     private const EXPECTATION_METHODS = ['expect', 'and'];
+
+    /** @var array<lowercase-string, ?string> `Class::method` the latest call of each name forwards to; the return provider runs right before the params one. */
+    private static array $forwarded = [];
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -39,7 +47,7 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
             static function (MethodParamsProviderEvent $event): ?array {
                 $source = $event->getStatementsSource();
                 $name = $event->getMethodNameLowercase();
-                $method = self::forwardedMethod($source, $name);
+                $method = self::$forwarded[$name] ?? null;
                 if ($method === null || !$source instanceof StatementsSource) {
                     return null;
                 }
@@ -54,7 +62,13 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
             PestApi::TEST_CALL,
             static function (MethodReturnTypeProviderEvent $event): ?Union {
                 $name = $event->getMethodNameLowercase();
-                if (self::forwardedMethod($event->getSource(), $name) === null) {
+                $source = $event->getSource();
+                $codebase = $source->getCodebase();
+                $stmt = $event->getStmt();
+                $target = self::replayTarget($codebase, $source->getFilePath(), $stmt instanceof MethodCall ? $stmt->var : null);
+
+                self::$forwarded[$name] = self::forwardedMethod($codebase, $name, $target);
+                if (self::$forwarded[$name] === null) {
                     return null;
                 }
 
@@ -65,18 +79,41 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
         );
     }
 
-    /**
-     * The `Class::method` id `TestCall::__call()` ends up running for `$name` (a non-private method
-     * of any part of the file's `$this` type), or null when `TestCall` declares `$name` itself or
-     * nothing it forwards to has it.
-     */
-    private static function forwardedMethod(?StatementsSource $source, string $name): ?string
+    /** The object Pest replays the next call on: the TestCase, or the last object a forwarded call of the `$receiver` chain returned. */
+    private static function replayTarget(Codebase $codebase, string $filePath, ?Expr $receiver): ?Union
     {
-        if (!$source instanceof StatementsSource) {
-            return null;
+        $names = [];
+        for (; $receiver instanceof MethodCall && $receiver->name instanceof Identifier; $receiver = $receiver->var) {
+            \array_unshift($names, $receiver->name->toLowerString());
         }
 
-        $codebase = $source->getCodebase();
+        $target = BoundTestCase::thisType($codebase, $filePath);
+        foreach ($names as $name) {
+            $method = self::forwardedMethod($codebase, $name, $target);
+            $returned = $method === null ? null : $codebase->getMethodReturnType($method, $selfClass)?->getAtomicTypes();
+            $objects = [];
+            foreach ($returned ?? [] as $atomic) {
+                // `static` is the object the call ran on.
+                if ($atomic instanceof TNamedObject) {
+                    $objects += $atomic->is_static ? $target?->getAtomicTypes() ?? [] : [$atomic->getKey() => $atomic];
+                }
+            }
+
+            $target = $objects === [] ? $target : new Union($objects);
+        }
+
+        return $target;
+    }
+
+    /**
+     * The `Class::method` id `TestCall::__call()` ends up running for `$name` (a non-private method
+     * of any part of the `$target` object), or null when `TestCall` declares `$name` itself or
+     * nothing it forwards to has it.
+     *
+     * @psalm-mutation-free
+     */
+    private static function forwardedMethod(Codebase $codebase, string $name, ?Union $target): ?string
+    {
         if (isset(BoundTestCase::storage($codebase, PestApi::TEST_CALL)?->declaring_method_ids[$name])) {
             return null;
         }
@@ -85,12 +122,13 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
             return PestApi::HIGHER_ORDER_CALLABLES . '::expect';
         }
 
-        $type = BoundTestCase::thisType($codebase, $source->getFilePath())?->getSingleAtomic();
-        foreach ($type instanceof TNamedObject ? [$type->value, ...\array_keys($type->extra_types)] : [] as $part) {
-            $declaring = BoundTestCase::storage($codebase, $part)?->declaring_method_ids[$name] ?? null;
-            $visibility = $declaring === null ? null : BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$name]->visibility ?? null;
-            if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
-                return $declaring->fq_class_name . '::' . $name;
+        foreach ($target?->getAtomicTypes() ?? [] as $type) {
+            foreach ($type instanceof TNamedObject ? [$type->value, ...\array_keys($type->extra_types)] : [] as $part) {
+                $declaring = BoundTestCase::storage($codebase, $part)?->declaring_method_ids[$name] ?? null;
+                $visibility = $declaring === null ? null : BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$name]->visibility ?? null;
+                if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
+                    return $declaring->fq_class_name . '::' . $name;
+                }
             }
         }
 

@@ -16,6 +16,7 @@ use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Type;
@@ -58,6 +59,9 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         PestApi::HIGHER_ORDER_EXPECTATION => PestApi::HIGHER_ORDER_EXPECTATION,
     ];
 
+    /** The value method the call being checked forwards to; handed from the return type to the params provider. */
+    private static ?string $forwarded = null;
+
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
     {
@@ -85,6 +89,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         self::acceptAnyHigherOrderMember($expectation, $storages[PestApi::HIGHER_ORDER_EXPECTATION]);
         self::typeExpectedValue($event->getCodebase());
+        self::checkForwardedArguments($event->getCodebase());
     }
 
     #[\Override]
@@ -95,6 +100,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         // Through the interface: the analyzer's own accessor is @internal.
         $nodeTypes = $source->getNodeTypeProvider();
         if (!$expr instanceof MethodCall && !$expr instanceof PropertyFetch
+            || $expr instanceof MethodCall && $expr->isFirstClassCallable()
             || !$expr->name instanceof Identifier
             || !$source instanceof StatementsAnalyzer
         ) {
@@ -296,6 +302,55 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             $storage->sealed_methods = false;
             $storage->methods['__get']->return_type = $returnType;
             $storage->methods['__call']->return_type = $returnType;
+        }
+    }
+
+    /**
+     * `expect($obj)->number('x')` runs `$obj->number('x')`, which `__call()` hides from argument checking: for a
+     * value of one class that has the method, answering the call here makes Psalm check its arguments against it.
+     */
+    private static function checkForwardedArguments(Codebase $codebase): void
+    {
+        foreach ([PestApi::EXPECTATION, PestApi::HIGHER_ORDER_EXPECTATION] as $class) {
+            $codebase->methods->return_type_provider->registerClosure(
+                $class,
+                static function (MethodReturnTypeProviderEvent $event) use ($codebase, $class): ?Union {
+                    $call = $event->getStmt();
+                    $name = $event->getMethodNameLowercase();
+                    $receiver = $call instanceof MethodCall
+                        ? ExpectNarrowingHandler::atomic($event->getSource()->getNodeTypeProvider()->getType($call->var))
+                        : null;
+                    if (!$receiver instanceof TGenericObject
+                        || $codebase->methodExists($class . '::' . $name)
+                        || $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $name)
+                    ) {
+                        return null;
+                    }
+
+                    $atomics = \array_filter(
+                        $receiver->type_params[$class === PestApi::EXPECTATION ? 0 : 1]->getAtomicTypes(),
+                        static fn(Atomic $atomic): bool => !$atomic instanceof TNull,
+                    );
+                    $value = \count($atomics) === 1 ? \reset($atomics) : null;
+                    $id = $value instanceof TNamedObject ? $value->value . '::' . $name : null;
+                    if ($id === null || !$codebase->methodExists($id)) {
+                        return null;
+                    }
+
+                    self::$forwarded = $id;
+
+                    return $codebase->classlike_storage_provider->get($class)->methods['__call']->return_type;
+                },
+            );
+            $codebase->methods->params_provider->registerClosure(
+                $class,
+                static function () use ($codebase): ?array {
+                    $id = self::$forwarded;
+                    self::$forwarded = null;
+
+                    return $id === null ? null : $codebase->getMethodParams($id);
+                },
+            );
         }
     }
 

@@ -137,6 +137,18 @@ final class TestCaseResolverTest extends TestCase
     }
 
     #[Test]
+    public function a_changed_test_file_drops_every_cached_answer(): void
+    {
+        $this->writePest("uses(Tests\\TestCase::class)->in('Feature');");
+        $this->assertSame('Tests\TestCase', $this->resolve('Feature/UserTest.php'));
+        $this->assertSame('Tests\TestCase', $this->resolve('Feature/OtherTest.php'));
+
+        $this->writePest("uses(Tests\\Other::class)->in('Feature');");
+        $this->assertSame('Tests\Other', $this->resolve('Feature/UserTest.php', '// edited'));
+        $this->assertSame('Tests\Other', $this->resolve('Feature/OtherTest.php'));
+    }
+
+    #[Test]
     public function file_outside_the_tests_directory_declines_instead_of_the_default(): void
     {
         $this->writePest("uses(Tests\\TestCase::class)->in('Feature');");

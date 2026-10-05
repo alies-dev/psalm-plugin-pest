@@ -15,9 +15,12 @@ use PhpParser\Node\Name;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\AfterFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\AfterFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\MethodVisibilityProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyTypeProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyVisibilityProviderEvent;
@@ -51,16 +54,22 @@ use Psalm\Type\Union;
  * crash). The event carries neither the access kind nor a reliable node, so the file's static
  * accesses to the TestCase are recorded and the providers decline those names.
  */
-final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, BeforeFileAnalysisInterface
+final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, AfterFileAnalysisInterface, BeforeFileAnalysisInterface
 {
     /** @var array<int, string> start offset of each `$this->name = ...` in a `beforeEach()` closure => name */
     private static array $assignments = [];
 
-    /** @var array<string, true> static accesses as `self::name` or `lowercase\fq\class::name` */
+    /** @var array<string, true> static accesses as `self::name`, `*::name` (dynamic class) or `lowercase\fq\class::name` */
     private static array $statics = [];
 
     /** @var array<string, Union> */
     private static array $types = [];
+
+    /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
+    private static array $declared = [];
+
+    /** @var list<array{array<int, string>, array<string, true>, array<string, Union>, array<string, Union>}> the including files' state */
+    private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
     public static function register(Codebase $codebase, string $testCase): void
@@ -85,7 +94,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                     return null;
                 }
 
-                return ($event->isReadMode() ? self::$types[$name] ?? null : null) ?? Type::getMixed();
+                return ($event->isReadMode() ? self::$types[$name] ?? null : self::$declared[$name] ?? null) ?? Type::getMixed();
             },
         );
     }
@@ -111,13 +120,34 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
 
     /**
      * Rebuilds the file's state; the types are a union across assignments, so a reused codebase
-     * (language server, watch mode) must not add a new analysis to the previous one's.
+     * (language server, watch mode) must not add a new analysis to the previous one's. An `include`
+     * in a test analyses the included file in the middle of this one, so the state is stacked.
      */
     #[\Override]
     public static function beforeAnalyzeFile(BeforeFileAnalysisEvent $event): void
     {
+        $codebase = $event->getCodebase();
+        $file = $event->getFileStorage()->file_path;
+        self::$outer[] = [self::$assignments, self::$statics, self::$types, self::$declared];
+
+        // A trait bound to this file keeps its protected members reachable from the tests.
+        $visibility = $codebase->methods->visibility_provider;
+        foreach (BoundTestCase::traits($codebase, $file) as $trait) {
+            if (!$visibility->has($trait)) {
+                $visibility->registerClosure(
+                    $trait,
+                    static fn(MethodVisibilityProviderEvent $event): ?bool => \in_array(
+                        $event->getFqClasslikeName(),
+                        BoundTestCase::traits($codebase, $event->getSource()->getFilePath()),
+                        true,
+                    ) ? true : null,
+                );
+            }
+        }
+
         // Pest.php hooks that target this file seed the types, so they union with its own assignments.
-        self::$types = BoundTestCase::properties($event->getCodebase(), $event->getFileStorage()->file_path);
+        self::$declared = BoundTestCase::traitProperties($codebase, $file);
+        self::$types = \array_replace(self::$declared, BoundTestCase::properties($codebase, $file));
         self::$assignments = [];
         self::$statics = [];
 
@@ -143,11 +173,17 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             $class = $fetch->class;
             $class = $class instanceof Name
                 ? \strtolower(NameResolution::resolved($class) ?? $class->toString())
-                : ($class instanceof Variable && $class->name === 'this' ? 'self' : null);
-            if ($class !== null && $fetch->name instanceof Identifier) {
+                : ($class instanceof Variable && $class->name === 'this' ? 'self' : '*');
+            if ($fetch->name instanceof Identifier) {
                 self::$statics[($class === 'static' ? 'self' : $class) . '::' . $fetch->name->name] = true;
             }
         }
+    }
+
+    #[\Override]
+    public static function afterAnalyzeFile(AfterFileAnalysisEvent $event): void
+    {
+        [self::$assignments, self::$statics, self::$types, self::$declared] = \array_pop(self::$outer) ?? [[], [], [], []];
     }
 
     /**
@@ -158,8 +194,21 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         return (isset(self::$types[$name]) || \in_array($name, self::$assignments, true))
             && !isset(self::$statics['self::' . $name])
+            && !isset(self::$statics['*::' . $name])
             && !isset(self::$statics[\strtolower($testCase) . '::' . $name])
             && !isset($codebase->classlike_storage_provider->get($testCase)->appearing_property_ids[$name]);
+    }
+
+    /** Whether `$link` is a chain of method calls rooted at Pest's `uses()` / `pest()`. */
+    private static function isPestChain(Expr $link): bool
+    {
+        while ($link instanceof MethodCall) {
+            $link = $link->var;
+        }
+
+        return $link instanceof FuncCall
+            && $link->name instanceof Name
+            && \in_array(\strtolower(NameResolution::resolved($link->name) ?? $link->name->toString()), ['uses', 'pest'], true);
     }
 
     /**
@@ -177,7 +226,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         }
 
         if ($call instanceof MethodCall) {
-            $isHook = $call->name instanceof Identifier && \strtolower($call->name->name) === 'beforeeach';
+            $isHook = $call->name instanceof Identifier && \strtolower($call->name->name) === 'beforeeach' && self::isPestChain($call->var);
         } elseif ($call->name instanceof Name) {
             $shadow = NameResolution::resolved($call->name, 'namespacedName');
             $isHook = \strtolower(NameResolution::resolved($call->name) ?? $call->name->toString()) === 'beforeeach'

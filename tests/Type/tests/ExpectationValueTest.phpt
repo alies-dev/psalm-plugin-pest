@@ -14,6 +14,12 @@ namespace PestExpectationValueFixture {
         {
             return $this->name;
         }
+
+        /** @psalm-pure */
+        public function add(int $_n): int
+        {
+            return $_n;
+        }
     }
 
     function value(int|string $intOrString, ?User $maybe, User $user): void
@@ -69,9 +75,20 @@ namespace PestExpectationValueFixture {
 
         expect($user)->nothing();
         expect($intOrString)->toBeIntt();
+
+        // A forwarded method checks the arguments it is called with.
+        expect($user)->add(1)->toBe(2);
+        expect($user)->add('x');
+        expect($user)->add();
+
+        // A first-class callable stays a Closure.
+        $_callable = expect($intOrString)->toBeInt(...);
+        $_callable();
     }
 }
 ?>
 --EXPECTF--
 UndefinedMagicMethod on line %d: Magic method PestExpectationValueFixture\User::nothing does not exist
 UndefinedMagicMethod on line %d: Magic method string::tobeintt does not exist
+InvalidScalarArgument on line %d: Argument 1 of Pest\Expectation::add expects int, but 'x' provided
+TooFewArguments on line %d: Too few arguments for Pest\Expectation::add - expecting _n to be passed

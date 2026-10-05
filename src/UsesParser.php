@@ -46,6 +46,8 @@ final class UsesParser
 
     private const ROOTS = ['uses', 'pest'];
 
+    private const ABSOLUTE = '__Absolute__';
+
     /**
      * @param bool $bootFile false for a test file: its closures run after Pest resolved the file's
      *                       TestCase, so an include inside one cannot configure it
@@ -268,7 +270,8 @@ final class UsesParser
     {
         if (\preg_match('/@(?:psalm-)?var\s+([^$*]+?)\s*(?:[$*]|$)/', $doc, $var) === 1) {
             try {
-                $type = Type::parseString($var[1], \PHP_VERSION_ID);
+                // parseString() drops a leading `\`; marking absolute names keeps them from being namespaced below.
+                $type = Type::parseString(\preg_replace('/(?<![\w\\\\])\\\\(?=\w)/', '\\\\' . self::ABSOLUTE . '\\\\', $var[1]) ?? '', \PHP_VERSION_ID);
             } catch (TypeParseTreeException) {
                 return 'mixed';
             }
@@ -291,7 +294,9 @@ final class UsesParser
             };
             $collector->traverse($type);
             foreach ($collector->classes as $class) {
-                $type = $type->replaceClassLike($class, $names->getResolvedClassName(new Name($class))->toString());
+                $type = $type->replaceClassLike($class, \str_starts_with($class, self::ABSOLUTE . '\\')
+                    ? \substr($class, \strlen(self::ABSOLUTE) + 1)
+                    : $names->getResolvedClassName(new Name($class))->toString());
             }
 
             return $type->getId();

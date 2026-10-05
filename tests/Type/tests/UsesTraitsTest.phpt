@@ -10,6 +10,11 @@ namespace PestTraitsFixture {
     {
         public int $createdUsers = 0;
 
+        protected function helper(): int
+        {
+            return 1;
+        }
+
         public function createUser(): User
         {
             return new User();
@@ -36,6 +41,10 @@ namespace {
         /** @psalm-check-type-exact $_user = PestTraitsFixture\User */
         $_count = $this->createdUsers;
         /** @psalm-check-type-exact $_count = int */
+        // A protected trait method is reachable, as in the TestCase Pest generates; a trait property keeps its type.
+        $_helped = $this->helper();
+        /** @psalm-check-type-exact $_helped = int */
+        $this->createdUsers = 'wrong';
         $this->assertTrue(true);
         $_class = PestTraitsFixture\needsTestCase($this);
         /** @psalm-check-type-exact $_class = string */
@@ -54,3 +63,4 @@ namespace {
 }
 ?>
 --EXPECTF--
+InvalidPropertyAssignmentValue on line %d: $this->createdUsers with declared type 'int' cannot be assigned type ''wrong''

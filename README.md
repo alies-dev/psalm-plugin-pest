@@ -45,8 +45,8 @@ When the answer is uncertain the plugin keeps Pest's own `TestCall` binding rath
 - `describe()->beforeEach()` closures are not bound: Pest exposes only `__call` on `describe()`'s return value.
 - Closures nested in arrays inside `->with([...])` are not bound; only a closure passed directly to `->with()` is.
 - In a hook chain, the TestCase is taken only from literal `X::class` arguments that come before the hook.
-- With traits bound, a genuinely undefined `$this->member` also reports `UndefinedClass` for the trait, because Psalm walks the whole intersection.
-- In a higher-order test, `->expect()` on the `TestCall` is typed `mixed`, and private TestCase methods are not usable as higher-order test calls.
+- With traits bound, a genuinely undefined `$this->member` also reports `UndefinedClass` for the trait, because Psalm walks the whole intersection. `test()->traitMethod()` is not resolved; use `$this->traitMethod()`.
+- In a higher-order test, `->expect()` on the `TestCall` is typed `mixed`, private TestCase methods are not usable as higher-order test calls, and a chain split across variables (`$c = it('x')->get('/'); $c->assertOk()`) is resolved against the TestCase.
 - `beforeEach()` properties: only plain `$this->name = ...` assignments count, not `??=`, list destructuring or `$this->items[] = ...`. Properties assigned inside `describe()` are visible to the whole file. A test analysed before the `beforeEach()` that assigns the property sees it as `mixed`.
 - Narrowing applies to plain variables only (`$var`, not `$this->prop` or `$a['k']`), and `toBeInstanceOf()` needs a `::class` argument.
 

@@ -54,17 +54,21 @@ final class BoundTestCase
         return $class === null ? null : new Union([new TNamedObject($class, extra_types: $traits)]);
     }
 
+    /** @return list<string> the traits bound next to the file's TestCase */
+    public static function traits(Codebase $codebase, string $filePath): array
+    {
+        return self::binding($codebase, $filePath)['traits'] ?? [];
+    }
+
     /**
-     * The instance properties `$this` has in the file beyond the TestCase's own: the bound traits'
-     * (Psalm cannot fetch a property through a trait in an intersection) and the Pest.php hooks'.
+     * The bound traits' instance properties, which Psalm cannot fetch through a trait in an intersection.
      *
      * @return array<string, Union>
      */
-    public static function properties(Codebase $codebase, string $filePath): array
+    public static function traitProperties(Codebase $codebase, string $filePath): array
     {
-        $binding = self::binding($codebase, $filePath);
         $properties = [];
-        foreach ($binding['traits'] ?? [] as $trait) {
+        foreach (self::traits($codebase, $filePath) as $trait) {
             foreach (self::storage($codebase, $trait)?->declaring_property_ids ?? [] as $name => $declaring) {
                 $property = self::storage($codebase, $declaring)?->properties[$name] ?? null;
                 if ($property !== null && !$property->is_static) {
@@ -73,7 +77,18 @@ final class BoundTestCase
             }
         }
 
-        foreach ($binding['properties'] ?? [] as $name => $types) {
+        return $properties;
+    }
+
+    /**
+     * The properties the `Pest.php` hooks declare for the file.
+     *
+     * @return array<string, Union>
+     */
+    public static function properties(Codebase $codebase, string $filePath): array
+    {
+        $properties = [];
+        foreach (self::binding($codebase, $filePath)['properties'] ?? [] as $name => $types) {
             $properties[$name] = Type::combineUnionTypeArray(\array_map(Type::parseString(...), $types), $codebase);
         }
 
