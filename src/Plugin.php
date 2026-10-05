@@ -19,6 +19,7 @@ final class Plugin implements PluginEntryPointInterface
         InternalDslHandler::class,
         ExpectationHandler::class,
         ClosureThisHandler::class,
+        CurrentTestHandler::class,
     ];
 
     #[\Override]
