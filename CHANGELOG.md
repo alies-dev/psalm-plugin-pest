@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - Stop treating the strings `'uses'` / `'pest'` as a possible dynamic call when they are array keys or indexes (`['uses' => 10]`, `$route['uses']`) ([#41](https://github.com/alies-dev/psalm-plugin-pest/issues/41)).
 - Ignore `require` / `include` inside named functions and class methods, which do not run while the file loads ([#42](https://github.com/alies-dev/psalm-plugin-pest/issues/42)).
 - Read `uses()` / `pest()` calls inside `describe()` closures like top-level ones, and inside `if` branches as if the condition held; an `if`/`else` that names two classes still leaves the file unbound ([#43](https://github.com/alies-dev/psalm-plugin-pest/issues/43)).
+- Type a property assigned in `beforeEach()` as nullable when read in `afterEach()`, so a defensive `?->`, `isset()` or `!== null` is no longer reported as redundant ([#48](https://github.com/alies-dev/psalm-plugin-pest/issues/48)).
+- Stop typing a property assigned `[]` or `collect()` in `beforeEach()` as `array<never, never>` / `Collection<never, never>`; `never` type arguments widen to `mixed` ([#49](https://github.com/alies-dev/psalm-plugin-pest/issues/49)).
 
 ## [0.2.1] - 2026-10-05
 

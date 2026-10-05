@@ -11,6 +11,21 @@ namespace PestBeforeEachFixture {
         }
     }
 
+    /**
+     * @template TKey of array-key
+     * @template TValue
+     */
+    final class Bag
+    {
+        /**
+         * @param array<TKey, TValue> $items
+         * @psalm-pure
+         */
+        public function __construct(public array $items = [])
+        {
+        }
+    }
+
     abstract class TestCase extends \PHPUnit\Framework\TestCase
     {
         protected string $token = '';
@@ -60,6 +75,9 @@ namespace {
         $this->count = 0;
         $this->token = 'set';
         $this->late = true;
+        // Filled elsewhere, so the empty initial value is not the type.
+        $this->commands = [];
+        $this->bag = new PestBeforeEachFixture\Bag();
     });
 
     // A nested closure keeps the bound `$this`.
@@ -97,11 +115,29 @@ namespace {
         // A declared property keeps its declared type.
         $_token = $this->token;
         /** @psalm-check-type-exact $_token = string */
+
+        $_commands = $this->commands;
+        /** @psalm-check-type-exact $_commands = array<array-key, mixed> */
+        $_bag = $this->bag;
+        /** @psalm-check-type-exact $_bag = PestBeforeEachFixture\Bag<mixed, mixed> */
     });
 
     afterEach(function (): void {
+        // beforeEach() may have thrown before assigning, so teardown reads are nullable.
         $_parser = $this->parser;
-        /** @psalm-check-type-exact $_parser = PestBeforeEachFixture\Parser */
+        /** @psalm-check-type-exact $_parser = PestBeforeEachFixture\Parser|null */
+        $_guarded = $this->parser?->parse('x');
+        /** @psalm-check-type-exact $_guarded = null|string */
+        if ($this->parser !== null && isset($this->count)) {
+            $_set = true;
+        }
+        array_map(function (int $_n): void {
+            $_nested = $this->parser;
+            /** @psalm-check-type-exact $_nested = PestBeforeEachFixture\Parser|null */
+        }, [1]);
+        // A declared property keeps its declared type.
+        $_token = $this->token;
+        /** @psalm-check-type-exact $_token = string */
     });
 
     test('a name never assigned in beforeEach is still undefined', function (): void {
