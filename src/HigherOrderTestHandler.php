@@ -124,7 +124,7 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
 
         foreach ($target?->getAtomicTypes() ?? [] as $type) {
             $declaring = $type instanceof TNamedObject ? BoundTestCase::storage($codebase, $type->value)?->declaring_method_ids[$name] ?? null : null;
-            $visibility = $declaring === null ? null : BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$name]->visibility ?? null;
+            $visibility = $declaring === null ? null : (BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$declaring->method_name] ?? null)?->visibility;
             if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
                 return $declaring->fq_class_name . '::' . $name;
             }

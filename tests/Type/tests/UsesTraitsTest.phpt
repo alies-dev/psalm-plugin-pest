@@ -6,8 +6,36 @@ namespace PestTraitsFixture {
     {
     }
 
+    trait Original
+    {
+        public function original(): int
+        {
+            return 1;
+        }
+    }
+
+    trait OnlyA
+    {
+        public function onlyA(): int
+        {
+            return 1;
+        }
+    }
+
+    trait OnlyB
+    {
+        public function onlyB(): int
+        {
+            return 1;
+        }
+    }
+
     trait CreatesUsers
     {
+        use Original {
+            original as renamed;
+        }
+
         public int $createdUsers = 0;
 
         protected function helper(): int
@@ -68,6 +96,9 @@ namespace {
         /** @psalm-check-type-exact $_next = PestTraitsFixture\TestCase&static */
         $_via = test()->createUser();
         /** @psalm-check-type-exact $_via = PestTraitsFixture\User */
+        // A trait composed into the bound one with an alias resolves under the alias.
+        $_renamed = $this->renamed();
+        /** @psalm-check-type-exact $_renamed = int */
         $this->nope();
         $this->assertTrue(true);
         $_class = PestTraitsFixture\needsTestCase($this);
@@ -84,8 +115,20 @@ namespace {
         $_current = $this->current;
         /** @psalm-check-type-exact $_current = PestTraitsFixture\User|null */
     });
+
+    // Chains binding the same TestCase to different traits do not share trait methods.
+    pest()->extend(PestTraitsFixture\TestCase::class)->use(PestTraitsFixture\OnlyA::class)->in('A')->beforeEach(function (): void {
+        $_a = $this->onlyA();
+        /** @psalm-check-type-exact $_a = int */
+    });
+    pest()->extend(PestTraitsFixture\TestCase::class)->use(PestTraitsFixture\OnlyB::class)->in('B')->beforeEach(function (): void {
+        $this->onlyA();
+        $_b = $this->onlyB();
+        /** @psalm-check-type-exact $_b = int */
+    });
 }
 ?>
 --EXPECTF--
 InvalidPropertyAssignmentValue on line %d: $this->createdUsers with declared type 'int' cannot be assigned type ''wrong''
 UndefinedMethod on line %d: Method PestTraitsFixture\TestCase::nope does not exist
+UndefinedMethod on line %d: Method PestTraitsFixture\TestCase::onlyA does not exist

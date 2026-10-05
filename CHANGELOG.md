@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Type `test()` called without arguments inside helper functions of a test file as the bound TestCase ([#29](https://github.com/alies-dev/psalm-plugin-pest/issues/29)).
 - Stop reporting `UndefinedClass` for traits passed to `uses()` after a fluent `$this` / `static` call, and for undefined members; `$this` is the plain TestCase and trait methods resolve on it, so `test()->traitMethod()` works too ([#28](https://github.com/alies-dev/psalm-plugin-pest/issues/28)).
+- Keep bound trait methods scoped: an aliased trait method no longer crashes Psalm, chains binding one TestCase to different traits no longer share methods, and an included file's traits no longer leak into the including file.
 
 ## [0.2.0] - 2026-10-05
 

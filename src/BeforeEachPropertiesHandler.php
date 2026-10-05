@@ -67,7 +67,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
     private static array $declared = [];
 
-    /** @var list<array{array<int, string>, array<string, true>, array<string, Union>, array<string, Union>}> the including files' state */
+    /** @var list<array{array<int, string>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>}> the including files' state */
     private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
@@ -127,7 +127,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         $codebase = $event->getCodebase();
         $file = $event->getFileStorage()->file_path;
-        self::$outer[] = [self::$assignments, self::$statics, self::$types, self::$declared];
+        self::$outer[] = [self::$assignments, self::$statics, self::$types, self::$declared, BoundTestCase::bound()];
 
         // Pest.php hooks that target this file seed the types, so they union with its own assignments.
         self::$declared = BoundTestCase::traitProperties($codebase, $file);
@@ -167,10 +167,8 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     #[\Override]
     public static function afterAnalyzeFile(AfterFileAnalysisEvent $event): void
     {
-        [self::$assignments, self::$statics, self::$types, self::$declared] = \array_pop(self::$outer) ?? [[], [], [], []];
-        if (self::$outer === []) {
-            BoundTestCase::restore();
-        }
+        [self::$assignments, self::$statics, self::$types, self::$declared, $bound] = \array_pop(self::$outer) ?? [[], [], [], [], []];
+        BoundTestCase::reinstate($event->getCodebase(), $bound);
     }
 
     /**

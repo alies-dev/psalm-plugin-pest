@@ -19,8 +19,11 @@ use Psalm\Type\Union;
  */
 final class BoundTestCase
 {
-    /** @var array<string, array{ClassLikeStorage, lowercase-string, ?MethodIdentifier, ?MethodIdentifier}> what {@see self::expose()} replaced, by `Class::method` */
+    /** @var array<string, array{ClassLikeStorage, lowercase-string, ?MethodIdentifier, ?MethodIdentifier}> what {@see self::reinstate()} replaced, by `Class::method` */
     private static array $exposed = [];
+
+    /** @var array<string, list<string>> the traits exposed on each TestCase now */
+    private static array $bound = [];
 
     /** `$this` in the file's Pest closures: the bound TestCase, never an intersection (Psalm reports a trait in one as an undefined class). */
     public static function thisType(Codebase $codebase, string $filePath): ?Union
@@ -74,30 +77,33 @@ final class BoundTestCase
      * Makes the traits' methods members of `$class`, as in the TestCase Pest generates (a trait wins
      * over an inherited method, not over an abstract one). Psalm resolves a call from the class's
      * storage alone: a method provider cannot add a method to a class without `__call`, and a trait
-     * in an intersection type is reported as an undefined class. Undone by {@see self::restore()} when
-     * the outermost analysed file ends, so no other file sees the methods.
+     * in an intersection type is reported as an undefined class. The traits replace the ones
+     * exposed on `$class` before; {@see self::reinstate()} undoes them when the file ends.
      *
      * @param list<string> $traits
      */
     public static function expose(Codebase $codebase, string $class, array $traits): void
     {
-        $storage = self::storage($codebase, $class);
-        foreach ($traits as $trait) {
-            foreach (self::storage($codebase, $trait)?->declaring_method_ids ?? [] as $name => $declaring) {
-                if (!$storage instanceof \Psalm\Storage\ClassLikeStorage || self::storage($codebase, $declaring->fq_class_name)?->methods[$name]?->abstract !== false) {
-                    continue;
-                }
-
-                self::$exposed[$storage->name . '::' . $name] ??= [$storage, $name, $storage->declaring_method_ids[$name] ?? null, $storage->appearing_method_ids[$name] ?? null];
-                $storage->declaring_method_ids[$name] = $declaring;
-                $storage->appearing_method_ids[$name] = new MethodIdentifier($storage->name, $name);
-            }
-        }
+        self::reinstate($codebase, [$class => $traits] + self::$bound);
     }
 
-    /** Puts back what {@see self::expose()} replaced. */
-    public static function restore(): void
+    /** @return array<string, list<string>> the traits exposed on each TestCase now */
+    public static function bound(): array
     {
+        return self::$bound;
+    }
+
+    /**
+     * Exposes exactly `$bound` (an earlier {@see self::bound()}, or none to undo everything).
+     *
+     * @param array<string, list<string>> $bound
+     */
+    public static function reinstate(Codebase $codebase, array $bound): void
+    {
+        if ($bound === self::$bound) {
+            return;
+        }
+
         foreach (self::$exposed as [$storage, $name, $declaring, $appearing]) {
             unset($storage->declaring_method_ids[$name], $storage->appearing_method_ids[$name]);
             if ($declaring !== null && $appearing !== null) {
@@ -107,6 +113,27 @@ final class BoundTestCase
         }
 
         self::$exposed = [];
+        self::$bound = $bound;
+        foreach ($bound as $class => $traits) {
+            $storage = self::storage($codebase, $class);
+            if (!$storage instanceof \Psalm\Storage\ClassLikeStorage) {
+                continue;
+            }
+
+            foreach ($traits as $trait) {
+                foreach (self::storage($codebase, $trait)?->declaring_method_ids ?? [] as $name => $declaring) {
+                    // `$name` can be a trait alias (`use Inner { original as renamed; }`): the method is stored under its own name.
+                    $method = self::storage($codebase, $declaring->fq_class_name)?->methods[$declaring->method_name] ?? null;
+                    if ($method?->abstract !== false) {
+                        continue;
+                    }
+
+                    self::$exposed[$storage->name . '::' . $name] ??= [$storage, $name, $storage->declaring_method_ids[$name] ?? null, $storage->appearing_method_ids[$name] ?? null];
+                    $storage->declaring_method_ids[$name] = $declaring;
+                    $storage->appearing_method_ids[$name] = new MethodIdentifier($storage->name, $name);
+                }
+            }
+        }
     }
 
     /** @return list<string> the traits bound next to the file's TestCase */

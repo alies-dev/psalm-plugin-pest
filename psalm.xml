@@ -48,6 +48,7 @@
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_type_provider" />
                 <referencedProperty name="Psalm\Internal\Codebase\Properties::$property_visibility_provider" />
                 <referencedProperty name="Psalm\Internal\MethodIdentifier::$fq_class_name" />
+                <referencedProperty name="Psalm\Internal\MethodIdentifier::$method_name" />
             </errorLevel>
         </InternalProperty>
         <InternalClass>
