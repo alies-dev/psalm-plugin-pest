@@ -17,6 +17,7 @@ Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Yo
 - Types expectation chains: `->not`, `->each`, higher-order members (`expect($user)->name->toBe('Ada')`), and `expect($v)` as `Expectation<T>`.
 - Narrows variables after type assertions: `expect($user)->not->toBeNull()` makes `$user` non-null.
 - Stops reporting `InternalMethod` on Pest's public API.
+- Reports `PestHookInDescribe` for `beforeAll()` / `afterAll()` inside `describe()`, which Pest rejects when loading the file.
 
 ## Known limitations
 
