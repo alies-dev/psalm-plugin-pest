@@ -33,3 +33,4 @@ namespace {
 }
 ?>
 --EXPECTF--
+PestStaticTestClosure on line %d: Pest cannot bind $this to a static closure and aborts the run when test() receives one; remove the `static` keyword.

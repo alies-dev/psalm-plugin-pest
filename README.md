@@ -18,6 +18,7 @@ Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Yo
 - Narrows variables after type assertions: `expect($user)->not->toBeNull()` makes `$user` non-null.
 - Stops reporting `InternalMethod` on Pest's public API.
 - Reports `PestHookInDescribe` for `beforeAll()` / `afterAll()` inside `describe()`, which Pest rejects when loading the file.
+- Reports `PestStaticTestClosure` for a `static` closure passed to `test()`, `it()`, `beforeEach()` or `afterEach()`, since Pest cannot bind `$this` to it.
 
 ## Known limitations
 
