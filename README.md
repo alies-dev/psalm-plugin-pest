@@ -7,7 +7,7 @@ composer require --dev alies-dev/psalm-plugin-pest
 vendor/bin/psalm-plugin enable alies-dev/psalm-plugin-pest
 ```
 
-Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Your `tests/` directory must be in `<projectFiles>`.
+Requires PHP 8.3+, Psalm 6.19+ or 7 (plugin API 0.3–0.4, including `dev-master`) and Pest 4 or 5. Your `tests/` directory must be in `<projectFiles>`.
 
 ## What it does
 

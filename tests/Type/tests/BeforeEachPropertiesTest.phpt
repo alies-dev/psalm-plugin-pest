@@ -36,6 +36,8 @@ namespace OtherNs {
     // Not Pest's: its closures declare nothing on a TestCase.
     function beforeEach(\Closure $setup): void
     {
+        // Impure on purpose: Psalm 7 otherwise wants a purity annotation Psalm 6 cannot parse.
+        echo 'setup';
         $setup();
     }
 
@@ -51,6 +53,7 @@ namespace OtherNs {
         /** @param-closure-this Service $setup */
         public function beforeEach(\Closure $setup): void
         {
+            echo 'setup';
             $setup();
         }
     }

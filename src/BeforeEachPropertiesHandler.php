@@ -280,7 +280,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             : null;
     }
 
-    /** @psalm-mutation-free */
+    /** @psalm-pure */
     private static function widen(Union $type): Union
     {
         $atomics = [];

@@ -4,6 +4,8 @@
 namespace PestStaticClosureFixture {
     function it(string $description, \Closure $closure): void
     {
+        // Impure on purpose: Psalm 7 otherwise wants a purity annotation Psalm 6 cannot parse.
+        echo $description;
         $closure->call(new \stdClass(), $description);
     }
 

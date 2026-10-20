@@ -14,6 +14,8 @@ namespace PestUntouchedFixture {
     /** @param-closure-this Box $closure */
     function test(string $description, \Closure $closure): void
     {
+        // Impure on purpose: Psalm 7 otherwise wants a purity annotation Psalm 6 cannot parse.
+        echo $description;
         $closure->call(new Box(), $description);
     }
 
