@@ -47,6 +47,12 @@ final class UsesParser
 {
     private const CLASS_METHODS = ['extend' => true, 'extends' => true, 'use' => true, 'uses' => true];
 
+    /**
+     * `Pest\Configuration` methods that return another object (not a `UsesCall`): a chain starting with
+     * one never reaches `extend()` / `in()` / a hook, so it cannot change any TestCase binding.
+     */
+    private const CONFIG_ACCESSORS = ['printer' => true, 'presets' => true, 'project' => true, 'browser' => true, 'evals' => true, 'tia' => true];
+
     private const ROOTS = ['uses', 'pest'];
 
     private const ABSOLUTE = '__Absolute__';
@@ -79,6 +85,7 @@ final class UsesParser
 
         $names = $resolver->getNameContext();
         $entries = [];
+        $read = [];
         foreach (self::topLevelExpressions($statements) as $expression) {
             $chain = [];
             while ($expression instanceof MethodCall) {
@@ -94,6 +101,7 @@ final class UsesParser
                 continue;
             }
 
+            $read[\spl_object_id($expression)] = true;
             $entry = $expression->isFirstClassCallable() ? null : self::readChain($filePath, $expression, $chain, $names);
             if ($entry === null) {
                 return null;
@@ -102,9 +110,24 @@ final class UsesParser
             $entries[] = $entry;
         }
 
-        // A root that is not the head of a top-level statement (inside a closure, a condition, an
-        // assignment) may or may not run: the file cannot be read reliably.
-        return \count((new NodeFinder())->find($statements, self::isRootCall(...))) === \count($entries) ? $entries : null;
+        // A root that is not the head of a top-level statement (inside a closure, a loop, a condition, an
+        // assignment) may or may not run: the file cannot be read reliably, unless it is config-only.
+        $finder = new NodeFinder();
+        $configOnly = [];
+        foreach ($finder->findInstanceOf($statements, MethodCall::class) as $call) {
+            if (self::isRootCall($call->var) && $call->name instanceof Identifier && isset(self::CONFIG_ACCESSORS[\strtolower($call->name->name)])) {
+                $configOnly[\spl_object_id($call->var)] = true;
+            }
+        }
+
+        foreach ($finder->find($statements, self::isRootCall(...)) as $root) {
+            $id = \spl_object_id($root);
+            if (!isset($read[$id]) && !isset($configOnly[$id])) {
+                return null;
+            }
+        }
+
+        return $entries;
     }
 
     /**

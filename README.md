@@ -25,7 +25,7 @@ Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Yo
 ## Known limitations
 
 - `tests/Pest.php` is looked up next to your Psalm config, and a test file outside `tests/` keeps Pest's own types.
-- Files are parsed, never executed: a boot file with dynamic `uses()` calls disables TestCase resolution for the suite.
+- Files are parsed, never executed: a boot file with dynamic `uses()` calls disables TestCase resolution for the suite. Config-only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
 - Custom expectations from `expect()->extend()` are still reported.
 - Narrowing works on plain variables only, not `$this->prop`.
 
