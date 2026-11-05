@@ -37,6 +37,7 @@ use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TLiteralString;
 use Psalm\Type\Atomic\TString;
 use Psalm\Type\Atomic\TTrue;
+use Psalm\Type\Atomic\TTypeVariable;
 use Psalm\Type\Union;
 
 /**
@@ -140,7 +141,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         }
 
         // The context holds what the assignment left on the property, a `@var` on it included.
-        $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed());
+        $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed(), $event->getCodebase());
         self::$types[$name] = isset(self::$types[$name])
             ? Type::combineUnionTypes(self::$types[$name], $assigned, $event->getCodebase())
             : $assigned;
@@ -280,8 +281,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             : null;
     }
 
-    /** @psalm-mutation-free */
-    private static function widen(Union $type): Union
+    private static function widen(Union $type, Codebase $codebase): Union
     {
         $atomics = [];
         foreach ($type->getAtomicTypes() as $atomic) {
@@ -293,7 +293,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                 // A fixture starting as `[]` / `collect()` is filled later, so `never` is only its initial state.
                 $atomic instanceof TArray && $atomic->isEmptyArray() => new TArray([Type::getArrayKey(), Type::getMixed()]),
                 $atomic instanceof TGenericObject => $atomic->setTypeParams(\array_map(
-                    static fn(Union $param): Union => $param->isNever() ? Type::getMixed() : $param,
+                    static fn(Union $param): Union => self::openTemplateParam($param, $codebase),
                     $atomic->type_params,
                 )),
                 default => $atomic,
@@ -301,5 +301,46 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         }
 
         return new Union($atomics);
+    }
+
+    /**
+     * A generic fixture's template argument, with `never` (the template of an empty `new Bag()`)
+     * opened up to `mixed`. Psalm 7 carries an argument no constructor argument pinned as a type
+     * variable (`Bag<`_0, `_1>`) tied to the function-like that minted it, so it is resolved to
+     * the type it was inferred as before the check; a variable nothing bound resolves to `mixed`.
+     *
+     * @param array<string, true> $unrolling the type variables being resolved further up the stack
+     */
+    private static function openTemplateParam(Union $param, Codebase $codebase, array $unrolling = []): Union
+    {
+        $opened = Type::getNever();
+        foreach ($param->getAtomicTypes() as $atomic) {
+            // Psalm 6 has the class but no way to resolve it: its variable stays as it was.
+            if ($atomic instanceof TTypeVariable && \method_exists($atomic, 'getResolvedType')) {
+                $resolved = !isset($unrolling[$atomic->name]) ? self::resolveTypeVariable($atomic, $codebase) : null;
+                $part = $resolved instanceof Union
+                    ? self::openTemplateParam($resolved, $codebase, [...$unrolling, $atomic->name => true])
+                    : Type::getMixed();
+            } else {
+                $part = new Union([$atomic]);
+            }
+
+            $opened = Type::combineUnionTypes($opened, $part, $codebase);
+        }
+
+        return $opened->isNever() ? Type::getMixed() : $opened;
+    }
+
+    /** What Psalm 7 inferred a type variable to be, `null` if nothing bound it. */
+    private static function resolveTypeVariable(TTypeVariable $variable, Codebase $codebase): ?Union
+    {
+        return \method_exists($variable, 'getResolvedType')
+            ? self::asUnion($variable->getResolvedType($codebase, false))
+            : null;
+    }
+
+    private static function asUnion(mixed $type): ?Union
+    {
+        return $type instanceof Union ? $type : null;
     }
 }

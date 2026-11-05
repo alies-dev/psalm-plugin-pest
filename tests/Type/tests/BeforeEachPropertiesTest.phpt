@@ -78,6 +78,8 @@ namespace {
         // Filled elsewhere, so the empty initial value is not the type.
         $this->commands = [];
         $this->bag = new PestBeforeEachFixture\Bag();
+        // A constructor that binds the templates keeps what it inferred.
+        $this->filled = new PestBeforeEachFixture\Bag(['a' => 1]);
     });
 
     // A nested closure keeps the bound `$this`.
@@ -120,6 +122,8 @@ namespace {
         /** @psalm-check-type-exact $_commands = array<array-key, mixed> */
         $_bag = $this->bag;
         /** @psalm-check-type-exact $_bag = PestBeforeEachFixture\Bag<mixed, mixed> */
+        $_item = $this->filled->items['a'] ?? null;
+        /** @psalm-check-type-exact $_item = 1|null */
     });
 
     afterEach(function (): void {
