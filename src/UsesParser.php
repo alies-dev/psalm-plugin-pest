@@ -39,7 +39,8 @@ use Psalm\Type\TypeVisitor;
  * config is written, and an undecidable `if`/`else` pair yields two classes, which is unknown.
  *
  * `properties`: per `$this->name = ...` in a chain's `beforeEach()` closure, the assignment's `@var`
- * (class names resolved to FQCNs), else the class of a `new`, a scalar literal's type, else `mixed`.
+ * (class names resolved to FQCNs), else the class of a `new`, a scalar literal's type, else `mixed`; a
+ * write through an element (`$this->name['a'][] = ...`) is an array per dimension.
  *
  * @psalm-type PestUsesEntry = array{classes: list<string>, targets: list<string>, properties: array<string, non-empty-list<string>>}
  */
@@ -313,19 +314,21 @@ final class UsesParser
     }
 
     /**
-     * Each `$this->name = ...` that is the closure's own `$this` (a nested class, function or static
-     * closure has another one), with the docblock of its statement.
+     * Each `$this->name = ...`, `$this->name ??= ...` and write through an element of it
+     * (`$this->name[...] = ...`, `$this->name[] = ...`) that is the closure's own `$this` (a nested
+     * class, function or static closure has another one), with the docblock of its statement.
      *
-     * @return \Generator<string, array{Expr\Assign, string}>
+     * @return \Generator<string, array{Expr\Assign|Expr\AssignOp\Coalesce, string}>
      */
     public static function thisAssignments(Expr\Closure|Expr\ArrowFunction $closure): \Generator
     {
         $finder = new NodeFinder();
+        $isWrite = static fn(Node $node): bool => $node instanceof Expr\Assign || $node instanceof Expr\AssignOp\Coalesce;
         $foreign = [];
         foreach ($finder->find($closure->getStmts(), static fn(Node $node): bool => $node instanceof Stmt\ClassLike
             || $node instanceof Stmt\Function_
             || (($node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction) && $node->static)) as $scope) {
-            foreach ($finder->findInstanceOf($scope, Expr\Assign::class) as $assign) {
+            foreach ($finder->find($scope, $isWrite) as $assign) {
                 $foreign[\spl_object_id($assign)] = true;
             }
         }
@@ -335,8 +338,15 @@ final class UsesParser
             $docs[\spl_object_id($statement->expr)] = $statement->getDocComment()?->getText() ?? '';
         }
 
-        foreach ($finder->findInstanceOf($closure->getStmts(), Expr\Assign::class) as $assign) {
+        foreach ($finder->find($closure->getStmts(), $isWrite) as $assign) {
+            \assert($assign instanceof Expr\Assign || $assign instanceof Expr\AssignOp\Coalesce);
+
+            // An element write holds the array its property holds: `$this->name['a']['b'] = ...` declares `name`.
             $target = $assign->var;
+            while ($target instanceof Expr\ArrayDimFetch) {
+                $target = $target->var;
+            }
+
             if ($target instanceof Expr\PropertyFetch
                 && $target->var instanceof Expr\Variable
                 && $target->var->name === 'this'
@@ -348,7 +358,18 @@ final class UsesParser
         }
     }
 
-    private static function propertyType(Expr\Assign $assign, string $doc, NameContext $names): string
+    /** The property holds an array per dimension of an element write, around the type of the value written. */
+    private static function propertyType(Expr\Assign|Expr\AssignOp\Coalesce $assign, string $doc, NameContext $names): string
+    {
+        $type = self::valueType($assign, $doc, $names);
+        for ($fetch = $assign->var; $fetch instanceof Expr\ArrayDimFetch; $fetch = $fetch->var) {
+            $type = 'array<array-key, ' . $type . '>';
+        }
+
+        return $type;
+    }
+
+    private static function valueType(Expr\Assign|Expr\AssignOp\Coalesce $assign, string $doc, NameContext $names): string
     {
         if (\preg_match('/@(?:psalm-)?var\s+([^$*]+?)\s*(?:[$*]|$)/', $doc, $var) === 1) {
             try {

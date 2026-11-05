@@ -170,6 +170,34 @@ final class UsesParserTest extends TestCase
     }
 
     #[Test]
+    public function before_each_hooks_declare_properties_written_through_elements_or_coalesced(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase'],
+                'targets' => [$this->root . '/tests'],
+                'properties' => [
+                    'media' => ['array<array-key, array<array-key, string>>'],
+                    'list' => ['array<array-key, int>'],
+                    'counter' => ['int'],
+                    'cache' => ['array<array-key, int>'],
+                    'nested' => ['array<array-key, int>'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                pest()->extend(Tests\TestCase::class)->beforeEach(function () {
+                    $this->media['a']['b'] = 'x';
+                    $this->list[] = 1;
+                    $this->counter ??= 0;
+                    $this->cache['k'] ??= 1;
+                    (function () { $this->nested[] = 1; })();
+                    $static = static function () { $this->ignored ??= 1; };
+                });
+                PHP),
+        );
+    }
+
+    #[Test]
     public function comments_between_name_and_arguments_still_parse(): void
     {
         $this->assertSame(

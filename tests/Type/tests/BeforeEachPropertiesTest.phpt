@@ -208,6 +208,28 @@ namespace {
         $_foreign = $this->foreign;
     });
 
+    // A write through an element (`$this->name[...] = ...`, `$this->name[] = ...`) or `??=` declares the
+    // property as a whole assignment does (#78).
+    beforeEach(function (): void {
+        $this->media['a']['b'] = 'x';
+        $this->list[] = 1;
+        $this->counter ??= 0;
+        $this->plain = 5;
+    });
+
+    test('reads properties written through elements or coalesced', function (): void {
+        $_media = $this->media;
+        /** @psalm-check-type-exact $_media = array<array-key, array<array-key, string>> */
+        $_list = $this->list;
+        /** @psalm-check-type-exact $_list = array<array-key, int> */
+        $_counter = $this->counter;
+        /** @psalm-check-type-exact $_counter = int */
+        $_plain = $this->plain;
+        /** @psalm-check-type-exact $_plain = int */
+        $this->list[] = 2;
+        $this->counter = 3;
+    });
+
     // Fixtures are instance properties: a static access to one stays undefined, and never crashes. The
     // name is then not a fixture of this file at all, so the beforeEach() assignment reports too.
     beforeEach(function (): void {

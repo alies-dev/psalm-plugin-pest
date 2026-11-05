@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrayDimFetch;
 use PhpParser\Node\Expr\Assign;
+use PhpParser\Node\Expr\AssignOp;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticPropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
@@ -64,8 +67,14 @@ use Psalm\Type\Union;
  */
 final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, AfterFileAnalysisInterface, BeforeFileAnalysisInterface
 {
-    /** @var array<int, string> start offset of each `$this->name = ...` in a `beforeEach()` closure => name */
+    /** @var array<int, string> start offset of each `$this->name = ...` (or write through an element of it) in a `beforeEach()` closure => name */
     private static array $assignments = [];
+
+    /** @var array<string, string> `start:end` offsets of the right operand of each `$this->name ??= ...` in a `beforeEach()` closure => name */
+    private static array $coalesced = [];
+
+    /** @var array<string, true> properties only written through elements, typed `array<array-key, mixed>` until their first write is analysed */
+    private static array $seeded = [];
 
     /** @var array<string, true> ids of the `afterEach()` closures, which may run after a `beforeEach()` that threw */
     private static array $afterEach = [];
@@ -79,7 +88,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
     private static array $declared = [];
 
-    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>}> the including files' state */
+    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>, array<string, string>, array<string, true>}> the including files' state */
     private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
@@ -130,23 +139,64 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         );
     }
 
-    /** Records the type of each `$this->name = <expr>` that sits directly in a `beforeEach()` closure. */
+    /**
+     * Records the type of each `$this->name = <expr>` that sits directly in a `beforeEach()` closure,
+     * of the right operand of each `$this->name ??= <expr>`, and of each write through an element of
+     * the property (`$this->name['a'] = ...`, `$this->name[] = ...`), which holds an array.
+     */
     #[\Override]
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
         $expr = $event->getExpr();
+        // Psalm analyses `??=` as an assignment of a coalesce, whose left side is what the property
+        // held so far: the operand is what the property gets, and is typed once analysed.
+        $coalesced = self::$coalesced === [] ? null : self::$coalesced[$expr->getStartFilePos() . ':' . $expr->getEndFilePos()] ?? null;
+        if ($coalesced !== null) {
+            $operand = $event->getStatementsSource()->getNodeTypeProvider()->getType($expr);
+            if ($operand instanceof Union) {
+                self::record($coalesced, self::widen($operand, $event->getCodebase()), $event->getCodebase());
+            }
+        }
+
         $name = $expr instanceof Assign ? self::$assignments[$expr->getStartFilePos()] ?? null : null;
         if (!$expr instanceof Assign || $name === null) {
             return null;
         }
 
         // The context holds what the assignment left on the property, a `@var` on it included.
-        $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed(), $event->getCodebase());
-        self::$types[$name] = isset(self::$types[$name])
-            ? Type::combineUnionTypes(self::$types[$name], $assigned, $event->getCodebase())
-            : $assigned;
+        $assigned = $event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed();
+        if ($expr->var instanceof ArrayDimFetch && !$assigned->hasObjectType()) {
+            // An element write leaves the shape of that one write (`array{a: array{b: 'x'}}`), not what the
+            // property can hold: it holds an array per dimension, around the type of the value written.
+            $value = $event->getStatementsSource()->getNodeTypeProvider()->getType($expr->expr);
+            $assigned = self::arrayWrittenThrough($expr->var, $value instanceof Union ? self::widen($value, $event->getCodebase()) : Type::getMixed());
+        } else {
+            $assigned = self::widen($assigned, $event->getCodebase());
+        }
+
+        self::record($name, $assigned, $event->getCodebase());
 
         return null;
+    }
+
+    /** The first write replaces the placeholder the property was seeded with, whose mixed leaf would absorb its type. */
+    private static function record(string $name, Union $type, Codebase $codebase): void
+    {
+        self::$types[$name] = isset(self::$types[$name]) && !isset(self::$seeded[$name])
+            ? Type::combineUnionTypes(self::$types[$name], $type, $codebase)
+            : $type;
+        unset(self::$seeded[$name]);
+    }
+
+    /** An array per dimension of `$element` around `$leaf`: `$this->p['a']['b'] = ...` finds `array<array-key, array<array-key, T>>`. */
+    private static function arrayWrittenThrough(ArrayDimFetch $element, ?Union $leaf = null): Union
+    {
+        $type = $leaf ?? Type::getMixed();
+        for ($fetch = $element; $fetch instanceof ArrayDimFetch; $fetch = $fetch->var) {
+            $type = new Union([new TArray([Type::getArrayKey(), $type])]);
+        }
+
+        return $type;
     }
 
     /**
@@ -159,14 +209,20 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         $codebase = $event->getCodebase();
         $file = $event->getFileStorage()->file_path;
-        self::$outer[] = [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, BoundTestCase::bound()];
+        self::$outer[] = [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, BoundTestCase::bound(), self::$coalesced, self::$seeded];
 
         // Pest.php hooks that target this file seed the types, so they union with its own assignments.
         self::$declared = BoundTestCase::traitProperties($codebase, $file);
         self::$types = \array_replace(self::$declared, BoundTestCase::properties($codebase, $file));
         self::$assignments = [];
+        self::$coalesced = [];
+        self::$seeded = [];
         self::$afterEach = [];
         self::$statics = [];
+
+        // Names written as a whole (`$this->name = ...`, `??=`) and names written only through an element.
+        $plain = [];
+        $elements = [];
 
         $finder = new NodeFinder();
         $stmts = $event->getStmts();
@@ -183,11 +239,31 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             }
 
             foreach (UsesParser::thisAssignments($closure) as $name => [$assign]) {
-                self::$assignments[$assign->getStartFilePos()] = $name;
+                if ($assign instanceof AssignOp\Coalesce && $assign->var instanceof PropertyFetch) {
+                    self::$coalesced[$assign->expr->getStartFilePos() . ':' . $assign->expr->getEndFilePos()] = $name;
+                    $plain[$name] = true;
+                } else {
+                    self::$assignments[$assign->getStartFilePos()] = $name;
+                    if ($assign->var instanceof ArrayDimFetch) {
+                        $elements[$name] = isset($elements[$name])
+                            ? Type::combineUnionTypes($elements[$name], self::arrayWrittenThrough($assign->var), $codebase)
+                            : self::arrayWrittenThrough($assign->var);
+                    } else {
+                        $plain[$name] = true;
+                    }
+                }
             }
         }
 
-        if (self::$assignments === [] && self::$types === []) {
+        // A property only ever written through its elements holds an array, whichever write is analysed first.
+        foreach (\array_diff_key($elements, $plain) as $name => $type) {
+            if (!isset(self::$types[$name])) {
+                self::$types[$name] = $type;
+                self::$seeded[$name] = true;
+            }
+        }
+
+        if (self::$assignments === [] && self::$coalesced === [] && self::$types === []) {
             return;
         }
 
@@ -205,7 +281,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     #[\Override]
     public static function afterAnalyzeFile(AfterFileAnalysisEvent $event): void
     {
-        [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, $bound] = \array_pop(self::$outer) ?? [[], [], [], [], [], []];
+        [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, $bound, self::$coalesced, self::$seeded] = \array_pop(self::$outer) ?? [[], [], [], [], [], [], [], []];
         BoundTestCase::reinstate($event->getCodebase(), $bound);
     }
 
@@ -215,7 +291,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
      */
     private static function declares(Codebase $codebase, string $testCase, string $name): bool
     {
-        return (isset(self::$types[$name]) || \in_array($name, self::$assignments, true))
+        return (isset(self::$types[$name]) || \in_array($name, self::$assignments, true) || \in_array($name, self::$coalesced, true))
             && !isset(self::$statics['self::' . $name])
             && !isset(self::$statics['*::' . $name])
             && !isset(self::$statics[\strtolower($testCase) . '::' . $name])
