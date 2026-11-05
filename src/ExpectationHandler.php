@@ -212,10 +212,15 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
     /**
      * Pest's type matchers are strict, so one that no value of `$value` can pass always fails the test. The
-     * narrowing handler stays quiet about it on purpose; this is the diagnostic.
+     * narrowing handler stays quiet about it on purpose; this is the diagnostic. A `never` value is no value to
+     * judge (Psalm already failed on it, or a call it cannot resolve yields it), like in {@see self::memberOf()}.
      */
     private static function reportImpossible(Identifier $member, Union $value, StatementsSource $source): void
     {
+        if ($value->isNever()) {
+            return;
+        }
+
         IssueBuffer::maybeAdd(
             new PestImpossibleExpectation(
                 "Pest's {$member->name}() is a strict type check that always fails for {$value->getId()}; assert the type the value has or remove the assertion.",
