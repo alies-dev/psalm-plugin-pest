@@ -56,6 +56,7 @@ it('totals the cart', function () {
 |---|---|
 | `$this` in tests, hooks and datasets | Your TestCase from `uses()` / `pest()->extend()`, plus its traits |
 | `$this->user` set in `beforeEach()` | A declared property with its type, also from `tests/Pest.php` |
+| A function from `tests/Pest.php`, `Helpers.php` or `Helpers/` | Declared in every file under `tests/`, with its return type |
 | `test()` with no arguments | The bound TestCase |
 | `it('x')->actingAsAdmin()` | A resolved higher order call |
 | `expect($user)->name->toBe('Ada')` | `Expectation<T>` through `->not`, `->each` and member access |

@@ -30,6 +30,9 @@ final class TestCaseResolver
     /** @var array<string, array{0: list<PestUsesEntry>|null}> boot files per test directory; wrapped so a null is cached too */
     private static array $configs = [];
 
+    /** @var array<string, array{0: list<string>|null}> boot file paths per test directory, null cached too */
+    private static array $boots = [];
+
     /** @var array<string, array{0: string, 1: ?TestCaseBinding}> content hash and binding per test file */
     private static array $resolved = [];
 
@@ -47,10 +50,25 @@ final class TestCaseResolver
         // The language server reanalyses an edited file (possibly Pest.php itself) without reinitialising the plugin.
         if ($cached !== null) {
             self::$configs = [];
+            self::$boots = [];
             self::$resolved = [];
         }
 
         return (self::$resolved[$testFile] = [$hash, self::doResolve($testsDir, $testFile, $testContents, $isClass)])[1];
+    }
+
+    /**
+     * The boot files Pest loads before `$testFile`, which may call the functions they declare: every
+     * boot file when `$testFile` is in the tests directory, none when it is outside or the tree
+     * cannot be walked.
+     *
+     * @return list<string>
+     */
+    public static function bootFilesOf(string $testsDir, string $testFile): array
+    {
+        $files = self::bootFilePaths($testsDir);
+
+        return $files !== null && self::targets([UsesParser::realpath($testsDir)], UsesParser::realpath($testFile)) ? $files : [];
     }
 
     /**
@@ -101,8 +119,7 @@ final class TestCaseResolver
     /** @return list<PestUsesEntry>|null */
     private static function loadConfig(string $testsDir): ?array
     {
-        $realTestsDir = \realpath($testsDir);
-        $files = $realTestsDir !== false && \is_file($realTestsDir . \DIRECTORY_SEPARATOR . 'Pest.php') ? self::bootFiles($realTestsDir) : null;
+        $files = self::bootFilePaths($testsDir);
         if ($files === null) {
             return null;
         }
@@ -121,6 +138,18 @@ final class TestCaseResolver
         }
 
         return $entries;
+    }
+
+    /** @return list<string>|null null without a `Pest.php` or when the tree cannot be walked */
+    private static function bootFilePaths(string $testsDir): ?array
+    {
+        if (isset(self::$boots[$testsDir])) {
+            return self::$boots[$testsDir][0];
+        }
+
+        $realTestsDir = \realpath($testsDir);
+
+        return (self::$boots[$testsDir] = [$realTestsDir !== false && \is_file($realTestsDir . \DIRECTORY_SEPARATOR . 'Pest.php') ? self::bootFiles($realTestsDir) : null])[0];
     }
 
     /** @return list<string>|null null when the tree cannot be walked */
@@ -197,6 +226,7 @@ final class TestCaseResolver
     public static function reset(): void
     {
         self::$configs = [];
+        self::$boots = [];
         self::$resolved = [];
         // The answers rest on realpath() / is_file(); a new run must see the current tree.
         \clearstatcache(true);

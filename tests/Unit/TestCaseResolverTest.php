@@ -203,6 +203,32 @@ final class TestCaseResolverTest extends TestCase
     }
 
     #[Test]
+    public function boot_files_of_a_test_file_are_every_boot_file_inside_the_tests_directory(): void
+    {
+        $this->writePest('');
+        \file_put_contents($this->root . '/tests/Helpers.php', '<?php');
+        \mkdir($this->root . '/tests/Helpers', 0o777, true);
+        \file_put_contents($this->root . '/tests/Helpers/Api.php', '<?php');
+        \mkdir($this->root . '/packages/foo/tests', 0o777, true);
+
+        $files = TestCaseResolver::bootFilesOf($this->root . '/tests', $this->root . '/tests/Feature/UserTest.php');
+        \sort($files);
+        $this->assertSame(
+            [$this->root . '/tests/Helpers.php', $this->root . '/tests/Helpers/Api.php', $this->root . '/tests/Pest.php'],
+            $files,
+        );
+        $this->assertSame([], TestCaseResolver::bootFilesOf($this->root . '/tests', $this->root . '/packages/foo/tests/PkgTest.php'));
+    }
+
+    #[Test]
+    public function no_boot_files_without_a_pest_php(): void
+    {
+        \file_put_contents($this->root . '/tests/Helpers.php', '<?php');
+
+        $this->assertSame([], TestCaseResolver::bootFilesOf($this->root . '/tests', $this->root . '/tests/Feature/UserTest.php'));
+    }
+
+    #[Test]
     public function symlinked_directory_in_the_test_tree_declines(): void
     {
         $this->writePest('');

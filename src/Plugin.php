@@ -21,6 +21,7 @@ final class Plugin implements PluginEntryPointInterface
         ClosureThisHandler::class,
         HigherOrderTestHandler::class,
         CurrentTestHandler::class,
+        BootFileFunctionsHandler::class,
         BeforeEachPropertiesHandler::class,
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,
