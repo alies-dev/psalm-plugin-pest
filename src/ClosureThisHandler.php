@@ -24,13 +24,15 @@ use Psalm\Type\Union;
 
 /**
  * Binds `$this` in the closures Pest runs on the TestCase: `test()` / `it()` / `beforeEach()` /
- * `afterEach()`, `TestCall::with()` datasets, and the hooks of a `uses()` / `pest()` chain.
+ * `afterEach()`, `TestCall::with()` datasets, the hooks of a `uses()` / `pest()` chain and the
+ * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain.
  *
  * Pest tags them `@param-closure-this TestCall`, whose `@mixin` union Psalm does not honor; the
  * `with()` and `UsesCall` closures carry no tag. A params provider answers per call site (no shared
  * state), and functions are registered only when the scanned one carries Pest's tag. It sees the
  * arguments but not the receiver, so a `UsesCall` hook is bound to the classes its own chain names
- * (`uses(A::class)->in('Feature')->beforeEach(...)`): {@see self::beforeExpressionAnalysis()}
+ * (`uses(A::class)->in('Feature')->beforeEach(...)`), and `Expectation::and()` only when its chain
+ * starts at `it()` / `test()` (elsewhere its closure is just a value): {@see self::beforeExpressionAnalysis()}
  * stashes the receiver on the first argument.
  */
 final class ClosureThisHandler implements AfterCodebasePopulatedInterface, BeforeExpressionAnalysisInterface, MethodParamsProviderInterface
@@ -41,6 +43,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     private const METHODS = [
         PestApi::TEST_CALL => ['with'],
         PestApi::USES_CALL => ['beforeeach', 'aftereach'],
+        PestApi::EXPECTATION => ['and'],
     ];
 
     private const RECEIVER = 'pest-receiver';
@@ -98,6 +101,10 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             return null;
         }
 
+        if ($class === PestApi::EXPECTATION && !self::startsAtTest($arg->getAttribute(self::RECEIVER))) {
+            return null;
+        }
+
         $chain = $class === PestApi::USES_CALL ? self::chainClasses($arg->getAttribute(self::RECEIVER)) : [];
 
         $type = BoundTestCase::thisTypeOf($codebase, $chain);
@@ -117,6 +124,23 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         }
 
         return null;
+    }
+
+    /**
+     * Whether a method chain starts at `it('x')` / `test('x')`: Pest replays the rest of that chain
+     * through `HigherOrderCallables`, which binds the closure of `expect()` / `and()` to the TestCase.
+     * Any other `Expectation::and()` takes the closure as a plain value.
+     */
+    private static function startsAtTest(mixed $link): bool
+    {
+        while ($link instanceof MethodCall) {
+            $link = $link->var;
+        }
+
+        return $link instanceof FuncCall
+            && $link->name instanceof Name
+            && \in_array($link->name->getLast(), ['it', 'test'], true)
+            && $link->args !== [];
     }
 
     /**
@@ -152,7 +176,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      * @param list<string> $traits
      * @return array<int, FunctionLikeParameter>
      */
-    private static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
+    public static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
     {
         $class = $type?->getSingleAtomic();
         if (!$class instanceof TNamedObject) {
