@@ -15,8 +15,9 @@ use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
  *
  * Psalm prepends a class's `internal` list onto each of its methods and properties at population,
  * once per population pass (`Populator::populateClassLikeStorage()`), and `MethodCallProhibitionAnalyzer`
- * checks only the member's copy, so the class and every member are cleared. None of the listed
- * classes marks a member `@internal` itself (pest v4.7.0), so dropping the class's entries is exact.
+ * checks only the member's copy, so the class and every member are cleared. Storage cannot tell a
+ * member's own `@internal` from the inherited one, so members Pest marks `@internal` itself (pest v4.7.0
+ * and v5.3) are listed in `OWN_INTERNAL_MEMBERS` and left alone.
  */
 final class InternalDslHandler implements AfterCodebasePopulatedInterface
 {
@@ -36,6 +37,18 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
         'Pest\PendingCalls\UsesCall',
         'Pest\Configuration',
         PestApi::HIGHER_ORDER_TAP_PROXY,
+        'Pest\Configuration\Printer',
+        'Pest\Configuration\Project',
+        'Pest\Arch\Contracts\ArchExpectation',
+        'Pest\Arch\PendingArchExpectation',
+    ];
+
+    /**
+     * Class => members whose own `@internal` stays. Method names are lowercase, property names are not.
+     */
+    private const OWN_INTERNAL_MEMBERS = [
+        'Pest\Arch\Contracts\ArchExpectation' => ['mergeexcludecallbacks', 'excludecallbacks'],
+        'Pest\Configuration\Project' => ['assignees', 'issues', 'prs'],
     ];
 
     #[\Override]
@@ -56,13 +69,19 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
 
             $storage->internal = [];
 
+            $kept = self::OWN_INTERNAL_MEMBERS[$class] ?? [];
+
             // Methods and properties are keyed by name and may share one, so no merged loop.
-            foreach ($storage->methods as $method) {
-                $method->internal = \array_values(\array_diff($method->internal, $classInternal));
+            foreach ($storage->methods as $name => $method) {
+                if (!\in_array($name, $kept, true)) {
+                    $method->internal = \array_values(\array_diff($method->internal, $classInternal));
+                }
             }
 
-            foreach ($storage->properties as $property) {
-                $property->internal = \array_values(\array_diff($property->internal, $classInternal));
+            foreach ($storage->properties as $name => $property) {
+                if (!\in_array($name, $kept, true)) {
+                    $property->internal = \array_values(\array_diff($property->internal, $classInternal));
+                }
             }
         }
     }
