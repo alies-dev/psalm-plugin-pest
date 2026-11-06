@@ -30,6 +30,8 @@ namespace {
         },
     ]);
 
+    dataset(dataset: ['n' => fn (): string => $this->token], name: 'reversed');
+
     it('binds rows of with()', function (string $_name): void {})->with([
         'arrow row' => fn (): string => $this->user,
         'nested row' => [fn (): string => test()->token, 'x'],

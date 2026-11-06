@@ -143,8 +143,12 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             return;
         }
 
-        $params = $functions->getStorage(null, 'dataset')->params;
-        if (\array_map(static fn(FunctionLikeParameter $param): string => $param->name, $params) !== ['name', 'dataset']) {
+        $storage = $functions->getStorage(null, 'dataset');
+        $params = $storage->params;
+        $declaredIn = \str_replace('\\', '/', $storage->location->file_path ?? '');
+        if (!\str_ends_with($declaredIn, '/src/Functions.php')
+            || \array_map(static fn(FunctionLikeParameter $param): string => $param->name, $params) !== ['name', 'dataset']
+        ) {
             return;
         }
 
@@ -155,7 +159,13 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                 $codebase = $source->getCodebase();
                 $file = $source->getFilePath();
                 $type = BoundTestCase::thisType($codebase, $file);
-                $dataset = $event->getCallArgs()[1] ?? null;
+                $dataset = null;
+                foreach ($event->getCallArgs() as $position => $arg) {
+                    if ($arg->name?->name === 'dataset' || ($arg->name === null && $position === 1)) {
+                        $dataset = $arg;
+                    }
+                }
+
                 if ($type instanceof Union && $dataset instanceof Arg) {
                     // Only for the side effects of binding; the closure parameter itself stays unbound.
                     self::bind($codebase, $params, 1, $type, BoundTestCase::traits($codebase, $file));
