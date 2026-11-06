@@ -31,75 +31,70 @@ namespace PestExpectNarrowingFixture {
         return 0;
     }
 
-    // A check comment is evaluated after the statement that follows it, hence `seen()` as that statement.
+    // A check comment is evaluated after the statement it precedes. A statement calling something ends the narrowing
+    // of a property path (see ExpectNarrowingLifetimeTest), so the checks sit on call-free statements.
     function properties(Holder $holder, Holder $other): void
     {
-        expect($holder->prop)->not->toBeNull();
         /** @psalm-check-type-exact $holder->prop = string */
-        echo seen($holder->prop);
+        expect($holder->prop)->not->toBeNull();
 
-        expect($other->prop)->toBeNull();
         /** @psalm-check-type-exact $other->prop = null */
-        echo seen($other->prop);
+        expect($other->prop)->toBeNull();
     }
 
     function nestedProperties(Holder $holder): void
     {
         expect($holder->next)->toBeInstanceOf(Holder::class);
-        expect($holder->next->object)->not->toBeNull();
         /** @psalm-check-type-exact $holder->next = Holder */
         /** @psalm-check-type-exact $holder->next->object = \stdClass */
-        echo seen($holder->next->object);
+        expect($holder->next->object)->not->toBeNull();
     }
 
     function propertyThroughAnd(Holder $holder, ?string $plain): void
     {
-        expect($plain)->toBeString()->and($holder->prop)->toBeString();
         /** @psalm-check-type-exact $plain = string */
         /** @psalm-check-type-exact $holder->prop = string */
-        echo seen($holder->prop);
+        expect($plain)->toBeString()->and($holder->prop)->toBeString();
     }
 
-    // The narrowing is dropped by what drops Psalm's own: a write, the base variable changing. A method call keeps it,
-    // as after `assert()` (Psalm's `rememberPropertyAssignmentsAfterCall`).
-    function propertyInvalidated(Holder $holder, Holder $second, Holder $third): void
+    // The narrowing is dropped by what drops Psalm's own (a write, the base variable changing) and by a call.
+    function propertyInvalidated(Holder $holder, Holder $second, Holder $third, Holder $fourth, Holder $other): void
     {
         expect($holder->prop)->not->toBeNull();
-        $holder->prop = null;
         /** @psalm-check-type-exact $holder->prop = null */
-        echo seen($holder->prop);
+        $holder->prop = null;
 
         expect($second->prop)->not->toBeNull();
+        /** @psalm-check-type-exact $second->prop = string|null */
         $second->method();
-        /** @psalm-check-type-exact $second->prop = string */
-        echo seen($second->prop);
 
         expect($third->prop)->not->toBeNull();
-        $third = new Holder();
+        $third = $other;
         /** @psalm-check-type-exact $third->prop = string|null */
-        echo seen($third->prop);
+        echo $third->prop;
+
+        expect($fourth->prop)->not->toBeNull();
+        /** @psalm-check-type-exact $fourth->prop = string|null */
+        $third->prop = null;
     }
 
     function propertyWrittenInChain(Holder $holder): void
     {
-        expect($holder->prop)->toBeString()->and($holder->prop = null)->toBeNull();
         /** @psalm-check-type-exact $holder->prop = null */
-        echo seen($holder->prop);
+        expect($holder->prop)->toBeString()->and($holder->prop = null)->toBeNull();
     }
 
     // The argument runs after Pest captured the subject, and it may change the property.
     function propertyMutatedByArgument(Holder $holder): void
     {
-        expect($holder->prop)->toBeString($holder->clear());
         /** @psalm-check-type-exact $holder->prop = string|null */
-        echo seen($holder->prop);
+        expect($holder->prop)->toBeString($holder->clear());
     }
 
     function propertyMutatedByMemberName(Holder $holder): void
     {
-        expect($holder->prop)->toBeString()->{$holder->clear()}();
         /** @psalm-check-type-exact $holder->prop = string|null */
-        echo seen($holder->prop);
+        expect($holder->prop)->toBeString()->{$holder->clear()}();
     }
 
     final class Cart
@@ -245,7 +240,7 @@ namespace {
     test('a property of the test case is narrowed in the closure', function (): void {
         expect($this->token)->not->toBeNull();
         /** @psalm-check-type-exact $this->token = string */
-        echo \strlen($this->token);
+        echo $this->token;
     });
 }
 

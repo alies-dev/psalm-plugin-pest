@@ -1,4 +1,7 @@
 <?xml version="1.0"?>
+<!-- tests/Type/psalm.xml with rememberPropertyAssignmentsAfterCall="false": Psalm then forgets a property path after
+     every call, Pest's own assertion calls included, and ExpectNarrowingForgetfulTest checks that the narrowing still
+     applies there. -->
 <psalm
     disableSuppressAll="true"
     ensureArrayStringOffsetsExist="true"
