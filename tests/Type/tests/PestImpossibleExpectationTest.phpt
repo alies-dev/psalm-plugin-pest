@@ -167,6 +167,39 @@ namespace PestImpossibleExpectationFixture {
         expect($basket->fluent())->toBeInstanceOf(Square::class);
         expect($basket->fluent())->toBeNull();
     }
+
+    /**
+     * An unresolved template parameter (what `->first()` on a bare `Collection` returns) is a value of unknown
+     * type: no type assertion on it is impossible. A bound still counts: `T of Square` is never a Circle or a
+     * string. Every assertion has its own parameter, as a passing one narrows the value for the next.
+     *
+     * @template T
+     * @template U of Square
+     * @param T $instance
+     * @param T $string
+     * @param T $null
+     * @param T|null $maybeInstance
+     * @param T|null $maybeInt
+     * @param U $boundedSquare
+     * @param U $boundedShape
+     * @param U $boundedObject
+     * @param U $boundedCircle
+     * @param U $boundedString
+     */
+    function templates($instance, $string, $null, $maybeInstance, $maybeInt, $boundedSquare, $boundedShape, $boundedObject, $boundedCircle, $boundedString): void
+    {
+        expect($instance)->toBeInstanceOf(User::class);
+        expect($string)->toBeString();
+        expect($null)->toBeNull();
+        expect($maybeInstance)->toBeInstanceOf(User::class);
+        expect($maybeInt)->toBeInt();
+
+        expect($boundedSquare)->toBeInstanceOf(Square::class);
+        expect($boundedShape)->toBeInstanceOf(Shape::class);
+        expect($boundedObject)->toBeObject();
+        expect($boundedCircle)->toBeInstanceOf(Circle::class);
+        expect($boundedString)->toBeString();
+    }
 }
 ?>
 --EXPECTF--
@@ -203,3 +236,5 @@ MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for %s; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for %s; assert the type the value has or remove the assertion.
