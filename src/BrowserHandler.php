@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
+use PhpParser\Node\Expr\MethodCall;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
+use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
+use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Union;
 
 /**
  * Lets `visit('/')->click('Login')->assertSee('Welcome')` type with pest-plugin-browser installed.
@@ -15,11 +19,18 @@ use Psalm\Type\Atomic\TNamedObject;
  * mixin as no mixin at all, so every assertion on the page is an `UndefinedMagicMethod`. At run time its
  * `__call()` forwards to `AwaitableWebpage`, whose `__call()` runs the method on `Webpage` and hands the
  * fluent result back, so `Webpage` is the class the call lands on and the one its methods are checked against.
- * The browser plugin is not required: without it there is nothing to patch.
+ *
+ * What comes back is not a `Webpage`: `AwaitableWebpage::__call()` returns itself when the method returned the
+ * `Webpage` it ran on. {@see self::afterExpressionAnalysis()} types such a result as `AwaitableWebpage`, on a
+ * `PendingAwaitablePage` and on an `AwaitableWebpage` alike (its own `@mixin Webpage` reads the same way);
+ * any other result keeps the type `Webpage` declares. The browser plugin is not required: without it
+ * there is nothing to patch.
  */
-final class BrowserHandler implements AfterCodebasePopulatedInterface
+final class BrowserHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface
 {
     private const PENDING_PAGE = 'Pest\Browser\Api\PendingAwaitablePage';
+
+    private const AWAITABLE_PAGE = 'Pest\Browser\Api\AwaitableWebpage';
 
     private const WEBPAGE = 'Pest\Browser\Api\Webpage';
 
@@ -42,5 +53,30 @@ final class BrowserHandler implements AfterCodebasePopulatedInterface
         }
 
         $pendingPage->namedMixins[] = new TNamedObject($webpage);
+    }
+
+    #[\Override]
+    public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
+    {
+        $expr = $event->getExpr();
+        if (!$expr instanceof MethodCall || $expr->isFirstClassCallable()) {
+            return null;
+        }
+
+        // Through the interface: the analyzer's own accessor is @internal.
+        $nodeTypes = $event->getStatementsSource()->getNodeTypeProvider();
+        $receiver = ExpectNarrowingHandler::atomic($nodeTypes->getType($expr->var));
+        $result = $nodeTypes->getType($expr);
+
+        if (!$receiver instanceof TNamedObject
+            || !\in_array($receiver->value, [self::PENDING_PAGE, self::AWAITABLE_PAGE], true)
+            || !$result instanceof Union
+        ) {
+            return null;
+        }
+
+        $nodeTypes->setType($expr, $result->replaceClassLike(self::WEBPAGE, self::AWAITABLE_PAGE));
+
+        return null;
     }
 }

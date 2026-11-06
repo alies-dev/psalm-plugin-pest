@@ -21,6 +21,15 @@ namespace Pest\Browser {
     }
 }
 
+namespace Pest\Browser\Playwright {
+    final readonly class Locator
+    {
+        public function __construct(public string $selector)
+        {
+        }
+    }
+}
+
 namespace Pest\Browser\Api {
     final readonly class Webpage
     {
@@ -34,17 +43,19 @@ namespace Pest\Browser\Api {
             return $this;
         }
 
-        public function assertNoSmoke(): static
+        public function assertNoSmoke(): Webpage
         {
             return $this;
         }
 
-        /**
-         * @internal
-         */
-        public function guessLocator(string $selector): string
+        public function url(): string
         {
-            return $selector;
+            return '';
+        }
+
+        private function guessLocator(string $selector, ?string $value = null): \Pest\Browser\Playwright\Locator
+        {
+            return new \Pest\Browser\Playwright\Locator($selector . ($value ?? ""));
         }
     }
 
@@ -108,16 +119,48 @@ namespace {
     $page->assertSee('Welcome');
     $page->click('Login')->assertSee('Dashboard');
 
-    $_chain = $page->click('Login');
-    /** @psalm-check-type-exact $_chain = \Pest\Browser\Api\Webpage */
+    // A Webpage returned from its own method comes back as the AwaitableWebpage that ran it.
+    $_chain = visit('/')->click('x');
+    /** @psalm-check-type-exact $_chain = \Pest\Browser\Api\AwaitableWebpage */
 
-    // Names that Webpage does not have are still reported.
+    $_asserted = visit('/')->click('x')->assertSee('y')->assertNoSmoke();
+    /** @psalm-check-type-exact $_asserted = \Pest\Browser\Api\AwaitableWebpage */
+
+    $_reply = visit('/')->inDarkMode();
+    /** @psalm-check-type-exact $_reply = \Pest\Browser\Api\PendingAwaitablePage */
+
+    // Any other result keeps the type Webpage declares.
+    $_url = visit('/')->url();
+    /** @psalm-check-type-exact $_url = string */
+
+    function awaitable(\Pest\Browser\Api\AwaitableWebpage $page): void
+    {
+        $_chain = $page->click('x');
+        /** @psalm-check-type-exact $_chain = \Pest\Browser\Api\AwaitableWebpage */
+
+        $_url = $page->url();
+        /** @psalm-check-type-exact $_url = string */
+    }
+
+    function takesAwaitable(\Pest\Browser\Api\AwaitableWebpage $page): void
+    {
+        $page->assertSee('x');
+    }
+
+    function takesWebpage(\Pest\Browser\Api\Webpage $page): void
+    {
+        $page->assertSee('x');
+    }
+
+    takesAwaitable(visit('/')->click('Login'));
+    takesWebpage(visit('/')->click('Login'));
+
+    // Names that Webpage does not have are still reported, and so is a private one.
     visit('/')->nope();
-
-    // A member Webpage marks @internal itself keeps reporting.
     visit('/')->guessLocator('a');
 }
 ?>
 --EXPECTF--
+InvalidArgument on line %d: Argument 1 of takesWebpage expects Pest\Browser\Api\Webpage, but Pest\Browser\Api\AwaitableWebpage provided
 UndefinedMagicMethod on line %d: Magic method Pest\Browser\Api\PendingAwaitablePage::nope does not exist
-InternalMethod on line %d: The method Pest\Browser\Api\Webpage::guessLocator is internal to Pest but called from root namespace
+InaccessibleMethod on line %d: Cannot access private method Pest\Browser\Api\Webpage::guessLocator%A
