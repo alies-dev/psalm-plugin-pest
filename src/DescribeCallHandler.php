@@ -44,6 +44,10 @@ final class DescribeCallHandler implements AfterCodebasePopulatedInterface
                     return null;
                 }
 
+                if ($name === 'with') {
+                    ClosureThisHandler::bindRows($source->getCodebase(), $source->getFilePath(), $event->getCallArgs() ?? []);
+                }
+
                 return $source->getCodebase()->getMethodParams(PestApi::TEST_CALL . '::' . $name);
             },
         );
