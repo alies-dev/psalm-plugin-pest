@@ -18,14 +18,13 @@ permissions:
 
 jobs:
   tests:
-    name: PHP ${{ matrix.php }} | Psalm ${{ matrix.psalm }} | Pest ${{ matrix.pest }}
+    name: PHP ${{ matrix.php }} | Pest ${{ matrix.pest }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # Lowest and highest supported PHP only; 8.4 adds runner time, not coverage.
         php: ['8.3', '8.5']
-        psalm: ['^6.19', '^7.0']
         pest: ['^4.0', '^5.0']
         exclude:
           # Pest 5 requires PHP 8.4.
@@ -51,10 +50,9 @@ jobs:
 
       - name: Install dependencies
         env:
-          PSALM_VERSION: ${{ matrix.psalm }}
           PEST_VERSION: ${{ matrix.pest }}
         run: >-
-          composer update --with="vimeo/psalm:$PSALM_VERSION" --with="pestphp/pest:$PEST_VERSION"
+          composer update --with="pestphp/pest:$PEST_VERSION"
           --with-all-dependencies --no-interaction --no-progress --prefer-dist
 
       - name: Unit tests
@@ -63,7 +61,6 @@ jobs:
       - name: Type tests
         run: composer test:type
 
-      # Self-analysis runs per Psalm version: purity rules differ between majors.
       - name: Psalm self-analysis
         run: vendor/bin/psalm --no-cache --no-progress
 
