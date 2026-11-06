@@ -39,6 +39,7 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
         PestApi::HIGHER_ORDER_TAP_PROXY,
         'Pest\Configuration\Printer',
         'Pest\Configuration\Project',
+        'Pest\Plugins\Tia\Configuration',
         'Pest\Arch\Contracts\ArchExpectation',
         'Pest\Arch\PendingArchExpectation',
     ];
