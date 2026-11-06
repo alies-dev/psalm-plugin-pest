@@ -95,6 +95,13 @@ namespace PestExpectNarrowingFixture {
         echo seen($holder->prop);
     }
 
+    function propertyMutatedByMemberName(Holder $holder): void
+    {
+        expect($holder->prop)->toBeString()->{$holder->clear()}();
+        /** @psalm-check-type-exact $holder->prop = string|null */
+        echo seen($holder->prop);
+    }
+
     final class Cart
     {
         public ?string $name = null;

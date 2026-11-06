@@ -53,8 +53,9 @@ use Psalm\Type\Union;
  * as coming from a docblock, so a later contradicting `if` is a DocblockTypeContradiction. An assertion that
  * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime ({@see ExpectationHandler}
  * reports it). The subject is a plain variable or a property path (`$a->b`, `$this->prop`): Psalm tracks both in
- * scope and a narrowed path is treated alike (a write drops it; a method call does not, as after Psalm's own `assert()`). A property path is left alone when an
- * argument in the chain calls something: it runs after Pest captured the subject and may rewrite the property.
+ * scope and treats a narrowed path alike (a write drops it; a method call does not, as after Psalm's own `assert()`).
+ * A property path is left alone when an argument or dynamic member name in the chain calls something: it runs after
+ * Pest captured the subject and may rewrite the property.
  */
 final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
 {
@@ -102,12 +103,18 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         if ($subject !== null) {
             $context = $event->getContext();
             $assertions = self::collect($subject, \array_reverse($steps), $source);
-            if (self::callsInArguments($steps)) {
+            if (self::callsInChain($steps)) {
                 // The call runs after Pest captured the subject and may rewrite a property, which Psalm then resets.
                 $assertions = \array_filter($assertions, static fn(string $id): bool => !\str_contains($id, '->'), \ARRAY_FILTER_USE_KEY);
             }
 
-            $assertions = \array_intersect_key($assertions, $context->vars_in_scope);
+            // Psalm forgets property paths after a call when `rememberPropertyAssignmentsAfterCall` is off; the
+            // reconciler rebuilds their declared type from the base variable.
+            $assertions = \array_filter(
+                $assertions,
+                static fn(string $id): bool => isset($context->vars_in_scope[$id]) || \str_contains($id, '->'),
+                \ARRAY_FILTER_USE_KEY,
+            );
             [$context->vars_in_scope, $context->references_in_scope] = self::reconcile(
                 $assertions,
                 $context->vars_in_scope,
@@ -132,16 +139,23 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         ) instanceof Node;
     }
 
-    /** @param list<MethodCall|PropertyFetch> $steps */
-    private static function callsInArguments(array $steps): bool
+    /**
+     * Whether something the chain evaluates after `expect()` calls out: an argument, or a dynamic member name.
+     *
+     * @param list<MethodCall|PropertyFetch> $steps
+     */
+    private static function callsInChain(array $steps): bool
     {
+        $isCall = static fn(Node $node): bool => $node instanceof Expr\CallLike;
+
         foreach ($steps as $step) {
-            if (!$step instanceof MethodCall) {
-                continue;
+            $evaluated = $step instanceof MethodCall ? $step->args : [];
+            if ($step->name instanceof Expr) {
+                $evaluated[] = $step->name;
             }
 
-            foreach ($step->args as $arg) {
-                if ((new NodeFinder())->findFirst($arg, static fn(Node $node): bool => $node instanceof Expr\CallLike) instanceof Node) {
+            foreach ($evaluated as $node) {
+                if ((new NodeFinder())->findFirst($node, $isCall) instanceof Node) {
                     return true;
                 }
             }
@@ -330,11 +344,18 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
 
         foreach (\array_keys($assertions) as $varId) {
             $narrowed = $reconciled[$varId] ?? null;
+            $old = $vars[$varId] ?? null;
 
             // An impossible assertion keeps the type the code had: `never` would only breed noise.
-            $reconciled[$varId] = self::impossible($narrowed, $vars[$varId], $codebase)
-                ? $vars[$varId]
-                : $narrowed->setFromDocblock(true);
+            if ($old === null) {
+                if ($narrowed === null || $narrowed->isNever() || $narrowed->failed_reconciliation) {
+                    unset($reconciled[$varId]);
+                } else {
+                    $reconciled[$varId] = $narrowed->setFromDocblock(true);
+                }
+            } else {
+                $reconciled[$varId] = self::impossible($narrowed, $old, $codebase) ? $old : $narrowed->setFromDocblock(true);
+            }
         }
 
         return [$reconciled, $references];
