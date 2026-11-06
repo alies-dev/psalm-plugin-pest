@@ -46,7 +46,8 @@ use Psalm\Type\Union;
  *    `TooFewArguments`). A pseudo method, not a mixin, keeps unknown names sealed: `->not->toBeBananas()` is reported.
  * 4. `Expectation::__get()` / `__call()` and `HigherOrderExpectation`'s accept any name: `$expect->formatId` is a
  *    `HigherOrderExpectation` over that member of the value.
- * 5. `expect($x)` is `Expectation<T>` for an argument of type `T`, not Pest's `Expectation<T|null>`.
+ * 5. `expect($x)` is `Expectation<T>` for an argument of type `T`, not Pest's `Expectation<T|null>`, and `expect()` is
+ *    `Expectation<mixed>` (the receiver of `extend()`), not `Expectation<null>`.
  *
  * What storage cannot say is the value: {@see self::afterExpressionAnalysis()} types a narrowing assertion as the
  * expectation of the narrowed value and a forwarded member as the value's property or method return type.
@@ -437,7 +438,12 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         }
     }
 
-    /** Pest's `@param TValue|null` / `@return Expectation<TValue|null>` would make `expect($x)` `Expectation<T|null>`. */
+    /**
+     * Pest's `@param TValue|null` / `@return Expectation<TValue|null>` would make `expect($x)` `Expectation<T|null>`.
+     * Psalm also fills `TValue` from the `null` default when the argument is left out, making `expect()` an
+     * `Expectation<null>`. That receiver is `expect()->extend()`'s, whose closure runs on an expectation of a value
+     * unknown at declaration, so the default stands for `mixed`.
+     */
     private static function typeExpectedValue(Codebase $codebase): void
     {
         if (!$codebase->functions->hasStubbedFunction('expect')) {
@@ -449,6 +455,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             if ($atomic instanceof TTemplateParam) {
                 $value = new Union([$atomic]);
                 $expect->params[0]->type = $value;
+                $expect->params[0]->default_type = Type::getMixed();
                 $expect->return_type = self::generic(PestApi::EXPECTATION, $value);
 
                 return;

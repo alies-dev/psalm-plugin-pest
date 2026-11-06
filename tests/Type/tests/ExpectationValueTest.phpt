@@ -38,8 +38,9 @@ namespace PestExpectationValueFixture {
         $_value = expect($intOrString);
         /** @psalm-check-type-exact $_value = \Pest\Expectation<int|string> */
 
+        // No argument: the value is unknown (the receiver of `extend()`), not null.
         $_none = expect();
-        /** @psalm-check-type-exact $_none = \Pest\Expectation<null> */
+        /** @psalm-check-type-exact $_none = \Pest\Expectation<mixed> */
 
         $_nullable = expect($maybe);
         /** @psalm-check-type-exact $_nullable = \Pest\Expectation<User|null> */
