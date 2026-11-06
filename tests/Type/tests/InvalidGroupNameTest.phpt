@@ -41,6 +41,27 @@ pest()->group('feature');
 $_callable = pest()->group(...);
 describe('block', function (): void {})->group('feature');
 beforeEach(function (): void {})->group('feature');
+function conditional(bool $b): void
+{
+    $g = '';
+    if ($b) {
+        $g = 'x';
+    }
+    it('conditional union', function (): void {})->group($g);
+}
+/** @param list<string> $parts */
+function concatenated(array $parts): void
+{
+    $name = '';
+    foreach ($parts as $p) {
+        $name .= $p;
+    }
+    it('loop concatenation', function (): void {})->group($name);
+}
+// Deliberate false negative: $g is typed '' | 'b', not a single literal, so the empty element is not reported.
+foreach (['', 'b'] as $g) {
+    it('foreach literal list', function (): void {})->group($g);
+}
 /** @psalm-suppress PestInvalidGroupName */
 it('suppressed', function (): void {})->group('');
 
