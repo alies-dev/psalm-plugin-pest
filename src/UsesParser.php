@@ -58,6 +58,19 @@ final class UsesParser
 
     private const ROOTS = ['uses', 'pest'];
 
+    /**
+     * Functions that call (or hand on to something that calls) a callable argument. A function name
+     * given as a string to any of them could run `uses()` / `pest()`.
+     */
+    private const CALLBACK_FUNCTIONS = [
+        'call_user_func' => true, 'call_user_func_array' => true, 'forward_static_call' => true, 'forward_static_call_array' => true,
+        'array_map' => true, 'array_filter' => true, 'array_walk' => true, 'array_walk_recursive' => true, 'array_reduce' => true,
+        'usort' => true, 'uasort' => true, 'uksort' => true, 'iterator_apply' => true, 'is_callable' => true,
+        'register_shutdown_function' => true, 'spl_autoload_register' => true, 'set_error_handler' => true, 'set_exception_handler' => true,
+        'array_udiff' => true, 'array_uintersect' => true, 'array_diff_ukey' => true, 'array_intersect_ukey' => true,
+        'tap' => true, 'retry' => true, 'value' => true, 'with' => true, 'rescue' => true, 'transform' => true, 'optional' => true, 'throw_if' => true,
+    ];
+
     private const ABSOLUTE = '__Absolute__';
 
     /**
@@ -143,20 +156,45 @@ final class UsesParser
     private static function isLinear(array $statements, string $filePath, bool $bootFile, array $including): bool
     {
         $finder = new NodeFinder();
-        // Neither can reach `uses()`: a named function or method body does not run while the file
-        // loads (nor does a test closure), and an array key or index is data, never a callee.
-        $inert = [];
-        foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Node\ArrayItem || $node instanceof Expr\ArrayDimFetch) as $node) {
-            $key = match (true) {
-                $node instanceof Node\ArrayItem => $node->key,
-                $node instanceof Expr\ArrayDimFetch => $node->dim,
-                default => null,
-            };
-            if ($key instanceof String_) {
-                $inert[\spl_object_id($key)] = true;
+        $connector = new class extends \PhpParser\NodeVisitorAbstract {
+            /** @var array<int, Node> */
+            public array $parents = [];
+
+            /** @var list<Node> */
+            private array $stack = [];
+
+            #[\Override]
+            public function enterNode(Node $node): ?int
+            {
+                if ($this->stack !== []) {
+                    $this->parents[\spl_object_id($node)] = $this->stack[\count($this->stack) - 1];
+                }
+
+                $this->stack[] = $node;
+
+                return null;
+            }
+
+            #[\Override]
+            public function leaveNode(Node $node): ?int
+            {
+                \array_pop($this->stack);
+
+                return null;
+            }
+        };
+        (new NodeTraverser($connector))->traverse($statements);
+        $parents = $connector->parents;
+        $variables = [];
+        foreach ($finder->findInstanceOf($statements, Expr\Variable::class) as $variable) {
+            if (\is_string($variable->name)) {
+                $variables[$variable->name][] = $variable;
             }
         }
 
+        // Neither can reach `uses()`: a named function or method body does not run while the file
+        // loads (nor does a test closure).
+        $inert = [];
         foreach ($finder->find($statements, static fn(Node $node): bool => $node instanceof Stmt\Function_ || $node instanceof Stmt\ClassMethod
             || (!$bootFile && ($node instanceof Expr\Closure || $node instanceof Expr\ArrowFunction))) as $body) {
             foreach ($finder->findInstanceOf($body, Expr\Include_::class) as $include) {
@@ -164,10 +202,14 @@ final class UsesParser
             }
         }
 
-        $opaque = $finder->findFirst($statements, static fn(Node $node): bool => match (true) {
-            $node instanceof String_ => !isset($inert[\spl_object_id($node)]) && \in_array(\strtolower(\ltrim($node->value, '\\')), self::ROOTS, true),
-            $node instanceof Expr\Include_ => !isset($inert[\spl_object_id($node)]) && !self::isInertInclude($node, $filePath, $bootFile, $including),
-            default => false,
+        $opaque = $finder->findFirst($statements, static function (Node $node) use ($inert, $variables, $parents, $filePath, $bootFile, $including): bool {
+            if ($node instanceof String_) {
+                $seen = [];
+
+                return \in_array(\strtolower(\ltrim($node->value, '\\')), self::ROOTS, true) && !self::isPlainValue($node, $variables, $parents, $seen);
+            }
+
+            return $node instanceof Expr\Include_ && !isset($inert[\spl_object_id($node)]) && !self::isInertInclude($node, $filePath, $bootFile, $including);
         });
         if ($opaque instanceof Node) {
             return false;
@@ -205,6 +247,74 @@ final class UsesParser
         return $node instanceof FuncCall
             && $node->name instanceof Name
             && \in_array($node->name->toLowerString(), self::ROOTS, true);
+    }
+
+    /**
+     * Whether a `'uses'` / `'pest'` string (or an array holding one) can never become a callee: an array
+     * key or index, a comparison operand, an argument of a method, constructor or non-callback function
+     * call, or the value of a variable that is only used like that. Anything else (a callee, a callback
+     * argument, a return value) might name the global `uses()` / `pest()` function.
+     *
+     * @param array<string, list<Expr\Variable>> $variables
+     * @param array<int, Node> $parents
+     * @param array<string, true> $seen variables already being checked (assignment cycles)
+     */
+    private static function isPlainValue(Node $node, array $variables, array $parents, array &$seen): bool
+    {
+        $parent = self::parentOf($node, $parents);
+        if (!$parent instanceof Node) {
+            return false;
+        }
+
+        switch (true) {
+            case $parent instanceof Node\ArrayItem:
+                return $parent->key === $node || self::isPlainValue($parent, $variables, $parents, $seen);
+            case $parent instanceof Expr\Array_:
+            case $parent instanceof Expr\BinaryOp\Coalesce:
+                return self::isPlainValue($parent, $variables, $parents, $seen);
+            case $parent instanceof Expr\ArrayDimFetch:
+                return $parent->dim === $node;
+            case $parent instanceof Expr\BinaryOp:
+                return true;
+            case $parent instanceof Node\Arg:
+                $call = self::parentOf($parent, $parents);
+
+                return match (true) {
+                    $call instanceof FuncCall => $call->name instanceof Name && !isset(self::CALLBACK_FUNCTIONS[\strtolower($call->name->getLast())]),
+                    $call instanceof Expr\StaticCall => !$call->name instanceof Identifier || \strtolower($call->name->name) !== 'fromcallable',
+                    $call instanceof MethodCall, $call instanceof Expr\NullsafeMethodCall, $call instanceof Expr\New_ => true,
+                    default => false,
+                };
+            case $parent instanceof Expr\Assign && $parent->expr === $node:
+                $name = $parent->var instanceof Expr\Variable ? $parent->var->name : null;
+                if (!\is_string($name)) {
+                    return false;
+                }
+
+                if (isset($seen[$name])) {
+                    return true;
+                }
+
+                $seen[$name] = true;
+                foreach ($variables[$name] ?? [] as $use) {
+                    $assign = self::parentOf($use, $parents);
+                    if ((!$assign instanceof Expr\Assign || $assign->var !== $use) && !self::isPlainValue($use, $variables, $parents, $seen)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * @param array<int, Node> $parents
+     */
+    private static function parentOf(Node $node, array $parents): ?Node
+    {
+        return $parents[\spl_object_id($node)] ?? null;
     }
 
     /**
