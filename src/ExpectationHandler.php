@@ -17,7 +17,9 @@ use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\MethodExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
+use Psalm\Plugin\EventHandler\MethodExistenceProviderInterface;
 use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
 use Psalm\Storage\FunctionLikeParameter;
@@ -52,11 +54,13 @@ use Psalm\Type\Union;
  * What storage cannot say is the value: {@see self::afterExpressionAnalysis()} types a narrowing assertion as the
  * expectation of the narrowed value and a forwarded member as the value's property or method return type.
  *
- * Runs after {@see InternalDslHandler}, so the cloned methods carry no `@internal` marker. Known limits:
- * `expect()->extend()` assertions are invisible to a scan; `->not` / `->each` read through a proxy resolve from the
- * `Expectation` mixin (which wins over the proxy's own pseudo properties), so the value type is not tracked there.
+ * Runs after {@see InternalDslHandler}, so the cloned methods carry no `@internal` marker. Expectations registered with
+ * `expect()->extend()` are invisible to a scan; {@see CustomExpectations} reads them from the boot files and the analysed
+ * file, and they run on the expectation, `->not`, `->each` and a higher-order member like Pest's own assertions.
+ * Known limit: `->not` / `->each` read through a proxy resolve from the `Expectation` mixin (which wins over the proxy's
+ * own pseudo properties), so the value type is not tracked there.
  */
-final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface
+final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, MethodExistenceProviderInterface
 {
     /** Each proxy and the class its `__call()` hands an assertion back as, on the proxy's own template arguments. */
     private const PROXY_RESULTS = [
@@ -65,8 +69,8 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         PestApi::HIGHER_ORDER_EXPECTATION => PestApi::HIGHER_ORDER_EXPECTATION,
     ];
 
-    /** The value method the call being checked forwards to; handed from the return type to the params provider. */
-    private static ?string $forwarded = null;
+    /** @var list<FunctionLikeParameter>|null the parameters of the method or closure the call being checked runs; handed from the return type to the params provider */
+    private static ?array $forwarded = null;
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -144,6 +148,43 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         $parameter->type = new Union([new TNamedObject(\Closure::class), new TString(), new TNamedObject(\Throwable::class)]);
     }
 
+    /** @return list<string> */
+    #[\Override]
+    public static function getClassLikeNames(): array
+    {
+        return [PestApi::OPPOSITE_EXPECTATION, PestApi::EACH_EXPECTATION];
+    }
+
+    /**
+     * `->not` and `->each` are sealed (an unknown name is a mistake), but they run an `expect()->extend()`
+     * expectation like the expectation itself does.
+     */
+    #[\Override]
+    public static function doesMethodExist(MethodExistenceProviderEvent $event): ?bool
+    {
+        $source = $event->getSource();
+
+        if (!$source instanceof StatementsSource) {
+            return null;
+        }
+
+        // Pest's own assertions first: Psalm asks this provider before it looks a method up, on every call.
+        $codebase = $source->getCodebase();
+        $method = $event->getMethodNameLowercase();
+        foreach ([$event->getFqClasslikeName(), PestApi::EXPECTATION, PestApi::MIXIN_EXPECTATION] as $class) {
+            if ($codebase->classlike_storage_provider->has($class)) {
+                $storage = $codebase->classlike_storage_provider->get($class);
+                if (isset($storage->declaring_method_ids[$method]) || isset($storage->pseudo_methods[$method])) {
+                    return null;
+                }
+            }
+        }
+
+        // Only a gate, as the event carries the name lowercased: the return type provider matches the exact case, as
+        // Pest's table does, and reports a wrong-case call.
+        return CustomExpectations::isVisibleLowercase($codebase, $source->getFilePath(), $method) ? true : null;
+    }
+
     #[\Override]
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
@@ -161,7 +202,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         $receiver = ExpectNarrowingHandler::atomic($nodeTypes->getType($expr->var));
         $type = $receiver instanceof TGenericObject
-            ? self::resolve($receiver, $expr, $expr->name, ExpectNarrowingHandler::atomic($nodeTypes->getType($expr)), $source, $event->getCodebase())
+            ? self::resolve($receiver, $expr, $expr->name, ExpectNarrowingHandler::atomic($nodeTypes->getType($expr)), $source, $event->getCodebase(), $event->getStatementsSource()->getFilePath())
             : null;
 
         if ($type instanceof Union) {
@@ -183,6 +224,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         ?Atomic $result,
         StatementsAnalyzer $source,
         Codebase $codebase,
+        string $file,
     ): ?Union {
         if (!\in_array($receiver->value, [PestApi::EXPECTATION, PestApi::OPPOSITE_EXPECTATION, PestApi::HIGHER_ORDER_EXPECTATION], true)) {
             return null;
@@ -192,9 +234,12 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         $fellThrough = $result instanceof TGenericObject
             && $result->value === PestApi::HIGHER_ORDER_EXPECTATION
             && $result->type_params[1]->isMixed();
+        // Pest runs an `expect()->extend()` expectation before it forwards a call to the value.
+        $custom = $fellThrough && $expr instanceof MethodCall ? CustomExpectations::visibleFrom($codebase, $file) : [];
+        $isCustom = \array_key_exists($member->name, $custom);
 
         if ($receiver->value === PestApi::HIGHER_ORDER_EXPECTATION) {
-            if ($expr instanceof MethodCall && $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name)) {
+            if ($expr instanceof MethodCall && ($isCustom || $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name))) {
                 $asserted = ExpectNarrowingHandler::assertedType($member->toLowerString(), $expr, $source);
                 if ($asserted instanceof Atomic && !ExpectNarrowingHandler::narrow($receiver->type_params[1], $asserted, false, $source, $codebase) instanceof Union) {
                     self::reportImpossible($member, $receiver->type_params[1], $source);
@@ -224,6 +269,15 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
             // A broken chain has no known value: the steps after the failing one must not report again.
             return self::generic(PestApi::EXPECTATION, $narrowed ?? ($negated ? $value : Type::getMixed()));
+        }
+
+        if ($isCustom) {
+            // Pest hands back the closure's own result only for an `ArchExpectation`; any other return value is dropped.
+            $returned = ExpectNarrowingHandler::atomic($custom[$member->name]?->signature_return_type);
+
+            return $returned instanceof TNamedObject && $returned->value === PestApi::ARCH_EXPECTATION
+                ? new Union([$returned])
+                : self::generic(PestApi::EXPECTATION, $value);
         }
 
         return $fellThrough
@@ -395,7 +449,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
      */
     private static function checkForwardedArguments(Codebase $codebase): void
     {
-        foreach ([PestApi::EXPECTATION, PestApi::HIGHER_ORDER_EXPECTATION] as $class) {
+        foreach ([PestApi::EXPECTATION, PestApi::HIGHER_ORDER_EXPECTATION, PestApi::OPPOSITE_EXPECTATION, PestApi::EACH_EXPECTATION] as $class) {
             $codebase->methods->return_type_provider->registerClosure(
                 $class,
                 static function (MethodReturnTypeProviderEvent $event) use ($codebase, $class): ?Union {
@@ -411,6 +465,25 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
                         return null;
                     }
 
+                    $visible = CustomExpectations::visibleFrom($codebase, $event->getSource()->getFilePath());
+                    $registered = $call->name instanceof Identifier && \array_key_exists($call->name->name, $visible);
+                    if ($registered) {
+                        // A closure Psalm has no storage of (held in a variable) takes any arguments.
+                        self::$forwarded = $visible[$call->name->name]?->params ?? [new FunctionLikeParameter('arguments', false, Type::getMixed(), is_optional: true, is_variadic: true)];
+
+                        // Psalm's own `__call()` type is a placeholder for the fall-through that `resolve()` types.
+                        return match ($class) {
+                            PestApi::OPPOSITE_EXPECTATION => self::generic(PestApi::EXPECTATION, $receiver->type_params[0]),
+                            PestApi::EACH_EXPECTATION => new Union([$receiver]),
+                            default => $codebase->classlike_storage_provider->get($class)->methods['__call']->return_type,
+                        };
+                    }
+
+                    // `->not` and `->each` forward a call to the value only as an expectation runs it, not as the value's own method.
+                    if ($class === PestApi::OPPOSITE_EXPECTATION || $class === PestApi::EACH_EXPECTATION) {
+                        return null;
+                    }
+
                     $atomics = \array_filter(
                         $receiver->type_params[$class === PestApi::EXPECTATION ? 0 : 1]->getAtomicTypes(),
                         static fn(Atomic $atomic): bool => !$atomic instanceof TNull,
@@ -421,18 +494,18 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
                         return null;
                     }
 
-                    self::$forwarded = $id;
+                    self::$forwarded = \array_values($codebase->getMethodParams($id));
 
                     return $codebase->classlike_storage_provider->get($class)->methods['__call']->return_type;
                 },
             );
             $codebase->methods->params_provider->registerClosure(
                 $class,
-                static function () use ($codebase): ?array {
-                    $id = self::$forwarded;
+                static function (): ?array {
+                    $params = self::$forwarded;
                     self::$forwarded = null;
 
-                    return $id === null ? null : $codebase->getMethodParams($id);
+                    return $params;
                 },
             );
         }
