@@ -119,7 +119,7 @@ final class CoversTargetHandler implements AfterMethodCallAnalysisInterface
                 : null;
 
             return match (true) {
-                $storage === null => 'classlike',
+                !$storage instanceof \Psalm\Storage\ClassLikeStorage => 'classlike',
                 $storage->is_interface => 'interface',
                 $storage->is_trait => 'trait',
                 $storage->is_enum => 'enum',
