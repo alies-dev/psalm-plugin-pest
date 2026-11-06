@@ -177,11 +177,17 @@ final class BoundTestCase
         return $properties;
     }
 
+    /** The directory Pest runs, next to the Psalm config. */
+    public static function testsDir(Codebase $codebase): string
+    {
+        return \rtrim($codebase->config->base_dir, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR . 'tests';
+    }
+
     /** @return array{class: string, traits: list<string>, properties: array<string, non-empty-list<string>>}|null */
     private static function binding(Codebase $codebase, string $filePath): ?array
     {
         return TestCaseResolver::resolve(
-            \rtrim($codebase->config->base_dir, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR . 'tests',
+            self::testsDir($codebase),
             $filePath,
             $codebase->file_provider->getContents($filePath),
             static function (string $class) use ($codebase): ?bool {
