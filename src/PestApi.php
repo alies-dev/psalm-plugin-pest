@@ -27,6 +27,9 @@ final class PestApi
     /** `->someProperty` / `->someMethod()` on an expectation of an object or array. */
     public const HIGHER_ORDER_EXPECTATION = 'Pest\Expectations\HigherOrderExpectation';
 
+    /** What an arch matcher (`toUseStrictTypes()`, `toUse()`) returns; an interface whose `@mixin Expectation` cannot supply `->not`. */
+    public const ARCH_EXPECTATION = 'Pest\Arch\Contracts\ArchExpectation';
+
     /** What `@param-closure-this` names on `test()` / `it()` / `beforeEach()` / `afterEach()`. */
     public const TEST_CALL = 'Pest\PendingCalls\TestCall';
 

@@ -11,6 +11,8 @@ use PhpParser\Node\Identifier;
 use Psalm\Codebase;
 use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Provider\ClassLikeStorageProvider;
+use Psalm\Issue\UndefinedInterfaceMethod;
 use Psalm\Issue\UndefinedMagicMethod;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
@@ -88,6 +90,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         self::returnOuterExpectation($assertions);
         self::carryValueTypeIntoProxyProperties($expectation);
+        self::giveArchMatchersExpectationProperties($provider, $expectation, $assertions, $storages[PestApi::OPPOSITE_EXPECTATION]);
         self::typeIterationCallbacks($expectation);
         self::acceptTypedExceptionClosure($assertions);
 
@@ -159,9 +162,21 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             return null;
         }
 
+        $member = $expr->name;
         $receiver = ExpectNarrowingHandler::atomic($nodeTypes->getType($expr->var));
+
+        if ($expr instanceof MethodCall
+            && $receiver instanceof TNamedObject
+            && $receiver->value === PestApi::ARCH_EXPECTATION
+            && $receiver->getIntersectionTypes() !== []
+        ) {
+            self::typeArchResultCall($receiver, $expr, $member, $source, $event->getCodebase());
+
+            return null;
+        }
+
         $type = $receiver instanceof TGenericObject
-            ? self::resolve($receiver, $expr, $expr->name, ExpectNarrowingHandler::atomic($nodeTypes->getType($expr)), $source, $event->getCodebase())
+            ? self::resolve($receiver, $expr, $member, ExpectNarrowingHandler::atomic($nodeTypes->getType($expr)), $source, $event->getCodebase())
             : null;
 
         if ($type instanceof Union) {
@@ -338,6 +353,65 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             if ($atomic instanceof TNamedObject && isset(self::PROXY_RESULTS[$atomic->value])) {
                 $expectation->pseudo_property_get_types[$property] = self::generic($atomic->value, ...$arguments);
             }
+        }
+    }
+
+    /**
+     * Psalm reads no property of an interface (`NoInterfaceProperties`), pseudo ones included, unless the type
+     * also names a class. Intersecting what the arch matchers return with `Expectation<string>`, the interface's
+     * own `@mixin`, gives `->not` / `->each` a class to resolve on.
+     */
+    private static function giveArchMatchersExpectationProperties(
+        ClassLikeStorageProvider $provider,
+        ClassLikeStorage ...$holders,
+    ): void {
+        if (!$provider->has(PestApi::ARCH_EXPECTATION)) {
+            return;
+        }
+
+        $arch = new TNamedObject(PestApi::ARCH_EXPECTATION);
+        $withProperties = new Union([$arch->addIntersectionType(new TGenericObject(PestApi::EXPECTATION, [Type::getString()]))]);
+
+        foreach ($holders as $holder) {
+            foreach ($holder->methods as $method) {
+                $returned = ExpectNarrowingHandler::atomic($method->return_type);
+
+                if ($returned instanceof TNamedObject && $returned->value === PestApi::ARCH_EXPECTATION) {
+                    $method->return_type = $withProperties;
+                }
+            }
+        }
+    }
+
+    /**
+     * Psalm intersects the interface's and `Expectation::__call()`'s results of `ignoring()`, which share no type:
+     * `mixed`. The same fallback would also accept a misspelled matcher, which the interface alone reports.
+     */
+    private static function typeArchResultCall(
+        TNamedObject $receiver,
+        MethodCall $call,
+        Identifier $member,
+        StatementsSource $source,
+        Codebase $codebase,
+    ): void {
+        if (\in_array($member->toLowerString(), ['ignoring', 'ignoringglobalfunctions'], true)) {
+            $source->getNodeTypeProvider()->setType($call, new Union([$receiver]));
+
+            return;
+        }
+
+        if (!$codebase->methodExists(PestApi::ARCH_EXPECTATION . '::' . $member->name)
+            && !$codebase->methodExists(PestApi::EXPECTATION . '::' . $member->name)
+            && !$codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name)
+        ) {
+            IssueBuffer::maybeAdd(
+                new UndefinedInterfaceMethod(
+                    "Method {$receiver->value}::{$member->name} does not exist",
+                    new CodeLocation($source, $member),
+                    $receiver->value . '::' . $member->name,
+                ),
+                $source->getSuppressedIssues(),
+            );
         }
     }
 
