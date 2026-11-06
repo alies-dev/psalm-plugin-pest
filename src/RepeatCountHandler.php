@@ -54,7 +54,13 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
             return null;
         }
 
-        $count = self::countArg($call, self::countParam($event->getCodebase(), $name));
+        // Older Pest 4 releases have no flaky(): Psalm reports the missing method itself.
+        $param = self::countParam($event->getCodebase(), $name);
+        if ($param === null) {
+            return null;
+        }
+
+        $count = self::countArg($call, $param);
         $type = $count === null ? null : $nodeTypes->getType($count->value);
         if ($count === null || !$type instanceof Union || !self::isBelowOne($type)) {
             return null;
@@ -72,7 +78,8 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
     }
 
     /**
-     * Name of `TestCall`'s count parameter, read from the stubs so a rename in Pest is picked up.
+     * Name of `TestCall`'s count parameter, read from the stubs so a rename in Pest is picked up; null when
+     * the installed Pest has no such method.
      *
      * @param lowercase-string $name
      */
@@ -82,7 +89,7 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
     }
 
     /** The argument bound to the count: the first positional one, or the one named after the parameter. */
-    private static function countArg(MethodCall $call, ?string $param): ?Arg
+    private static function countArg(MethodCall $call, string $param): ?Arg
     {
         foreach ($call->getArgs() as $index => $arg) {
             if (!$arg->unpack && ($arg->name === null ? $index === 0 : $arg->name->name === $param)) {
