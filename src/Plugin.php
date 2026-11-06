@@ -29,6 +29,7 @@ final class Plugin implements PluginEntryPointInterface
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,
         StaticTestClosureHandler::class,
+        EmptyTestClosureHandler::class,
         DuplicateTestDescriptionHandler::class,
         CoversTargetHandler::class,
         InvalidGroupNameHandler::class,

@@ -24,6 +24,7 @@ namespace {
     afterEach(static fn () => null);
 
     test('plain', function (): void {
+        expect(true)->toBeTrue();
     });
     it('plain arrow', fn () => expect(true)->toBeTrue());
     test('static outside the closure argument', function (): void {

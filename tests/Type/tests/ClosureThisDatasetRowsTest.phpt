@@ -24,7 +24,7 @@ namespace {
     });
 
     // Pest binds every closure that is a row, or a value of an array row, to the running test.
-    it('binds rows of with()', function (string $_name): void {})->with([
+    it('binds rows of with()', function (string $_name): void { expect(true)->toBeTrue(); })->with([
         fn (): string => $this->user,
         'keyed row' => function (): string {
             $_this = $this;
@@ -42,12 +42,12 @@ namespace {
     ]);
 
     // The parameter type is not looked at: a closure Pest passes as is is bound, too.
-    it('binds rows of every with() call', function (\Closure $_a, string $_b): void {})
+    it('binds rows of every with() call', function (\Closure $_a, string $_b): void { expect(true)->toBeTrue(); })
         ->with([fn (): string => $this->token])
         ->with(['b' => fn (): string => test()->token], [fn (): string => $this->helper()]);
 
     describe('in a block', function (): void {
-        it('binds rows of describe()->with()', function (string $_name): void {});
+        it('binds rows of describe()->with()', function (string $_name): void { expect(true)->toBeTrue(); });
 
         beforeEach()->with(['row' => function (): string {
             $_this = $this;
@@ -58,7 +58,7 @@ namespace {
 
     // A lazy dataset: Pest calls the closure itself unbound, then binds the rows it returns or yields
     // (a generator's return value is dropped, so no closure in it is a row).
-    it('binds rows of a lazy dataset', function (string $_name): void {})
+    it('binds rows of a lazy dataset', function (string $_name): void { expect(true)->toBeTrue(); })
         ->with(fn (): array => [fn (): string => $this->token, 'k' => [fn (): string => test()->user]])
         ->with(function (): \Generator {
             yield fn (): string => $this->token;
@@ -67,7 +67,7 @@ namespace {
         });
 
     describe('in a block with a lazy dataset', function (): void {
-        it('binds its rows', function (string $_name): void {});
+        it('binds its rows', function (string $_name): void { expect(true)->toBeTrue(); });
     })->with(fn (): array => [fn (): string => $this->token]);
 
     dataset('named', [
@@ -93,11 +93,11 @@ namespace {
     });
 
     // A static closure cannot be bound: Pest's Closure::bind() fails on it.
-    it('leaves a static row unbound', function (string $_name): void {})
+    it('leaves a static row unbound', function (string $_name): void { expect(true)->toBeTrue(); })
         ->with([static fn (): string => $this->token]);
 
     // Pest binds no closure deeper than a value of an array row.
-    it('leaves deeper closures unbound', function (array $_row): void {})->with([
+    it('leaves deeper closures unbound', function (array $_row): void { expect(true)->toBeTrue(); })->with([
         [[fn (): string => $this->token]],
     ]);
 }

@@ -12,42 +12,42 @@ namespace PestCoversFixture {
 namespace {
     use PestCoversFixture\Post;
 
-    it('unknown literals', function (): void {})
+    it('unknown literals', function (): void { expect(true)->toBeTrue(); })
         ->coversClass('PestCoversFixture\Missing')
         ->coversTrait('PestCoversFixture\MissingTrait')
         ->coversFunction('missing_helper');
 
-    it('unknown covers', function (): void {})->covers('PestCoversFixture\Missing', 'missing_helper');
-    it('unknown with a leading backslash', function (): void {})->covers('\PestCoversFixture\Missing');
-    it('unknown among known', function (): void {})->coversClass(Post::class, 'PestCoversFixture\Missing2');
-    it('unknown as a named argument', function (): void {})->coversClass(classes: 'PestCoversFixture\Missing4');
-    it('unknown vendor class Composer does not know', function (): void {})->coversClass('Composer\Semver\VersionParserTypo');
+    it('unknown covers', function (): void { expect(true)->toBeTrue(); })->covers('PestCoversFixture\Missing', 'missing_helper');
+    it('unknown with a leading backslash', function (): void { expect(true)->toBeTrue(); })->covers('\PestCoversFixture\Missing');
+    it('unknown among known', function (): void { expect(true)->toBeTrue(); })->coversClass(Post::class, 'PestCoversFixture\Missing2');
+    it('unknown as a named argument', function (): void { expect(true)->toBeTrue(); })->coversClass(classes: 'PestCoversFixture\Missing4');
+    it('unknown vendor class Composer does not know', function (): void { expect(true)->toBeTrue(); })->coversClass('Composer\Semver\VersionParserTypo');
 
-    it('unknown ::class is Psalm\'s to report', function (): void {})->coversClass(\PestCoversFixture\Absent::class);
+    it('unknown ::class is Psalm\'s to report', function (): void { expect(true)->toBeTrue(); })->coversClass(\PestCoversFixture\Absent::class);
 
-    it('empty names', function (): void {})
+    it('empty names', function (): void { expect(true)->toBeTrue(); })
         ->coversClass('')
         ->coversTrait('\\')
         ->coversFunction('')
         ->covers('');
 
-    it('methods are not covers targets', function (): void {})
+    it('methods are not covers targets', function (): void { expect(true)->toBeTrue(); })
         ->coversFunction('DateTime::format')
         ->covers('DateTime::format');
 
-    it('leading backslashes', function (): void {})
+    it('leading backslashes', function (): void { expect(true)->toBeTrue(); })
         ->coversClass('\PestCoversFixture\Post', '\Composer\Semver\VersionParser')
         ->coversTrait('\PestCoversFixture\Loggable')
         ->coversFunction('\strlen')
         ->covers('\PestCoversFixture\Post', '\PestCoversFixture\helper');
 
-    it('wrong kinds', function (): void {})
+    it('wrong kinds', function (): void { expect(true)->toBeTrue(); })
         ->coversClass('PestCoversFixture\Loggable', 'PestCoversFixture\Publishable', 'PestCoversFixture\helper')
         ->coversTrait('PestCoversFixture\Post', 'PestCoversFixture\Status')
         ->coversFunction('PestCoversFixture\Post', 'PestCoversFixture\Loggable')
         ->covers('PestCoversFixture\Publishable');
 
-    it('known targets', function (): void {})
+    it('known targets', function (): void { expect(true)->toBeTrue(); })
         ->coversClass(Post::class, 'PestCoversFixture\Post', 'pestcoversfixture\POST', 'PestCoversFixture\Status', \stdClass::class, 'PHPUnit\Framework\Assert', 'Composer\Semver\VersionParser')
         ->coversTrait('PestCoversFixture\Loggable')
         ->coversFunction('PestCoversFixture\helper', 'strlen', 'STRLEN', 'xdebug_start_trace')
