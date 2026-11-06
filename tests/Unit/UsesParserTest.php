@@ -204,6 +204,10 @@ final class UsesParserTest extends TestCase
         yield 'dynamic method' => ['pest()->{$method}(Tests\TestCase::class);'];
         yield 'dynamic target call' => ['uses(Tests\TestCase::class)->in(dirname(__DIR__));'];
         yield 'loop' => ['foreach (["Feature"] as $dir) { uses(Tests\TestCase::class)->in($dir); }'];
+        yield 'pest extend in a loop' => ['foreach (["Feature"] as $dir) { pest()->extend(Tests\TestCase::class)->in($dir); }'];
+        yield 'pest hook in a loop' => ['foreach (["Feature"] as $dir) { pest()->beforeEach(function () {}); }'];
+        yield 'bare pest in a loop' => ['foreach (["Feature"] as $dir) { $pest = pest(); }'];
+        yield 'uses nested in a config-only chain in a loop' => ['foreach (["Feature"] as $dir) { pest()->tia()->watch([uses(Tests\TestCase::class)]); }'];
         yield 'describe with an arrow function' => ["describe('x', fn () => uses(Tests\\TestCase::class));"];
         yield 'string callee' => ["'uses'(Tests\\TestCase::class);"];
         yield 'string callable argument' => ["array_map('pest', []);"];
@@ -282,6 +286,22 @@ final class UsesParserTest extends TestCase
                 ['classes' => ['Tests\WorkerCase'], 'targets' => [$testFile], 'properties' => []],
             ],
             UsesParser::parse($testFile, $source, bootFile: false),
+        );
+    }
+
+    #[Test]
+    public function config_only_chains_in_loops_do_not_decline(): void
+    {
+        $this->assertSame(
+            [['classes' => ['Tests\CatalogCase'], 'targets' => [$this->root . '/tests/Feature'], 'properties' => []]],
+            $this->parsePest(<<<'PHP'
+                uses(Tests\CatalogCase::class)->in('Feature');
+                foreach (['catalog'] as $package) {
+                    pest()->tia()->watch(['packages/' . $package . '/**' => 'tests']);
+                    pest()->printer()->compact();
+                    pest()->project()->github('org/repo');
+                }
+                PHP),
         );
     }
 
