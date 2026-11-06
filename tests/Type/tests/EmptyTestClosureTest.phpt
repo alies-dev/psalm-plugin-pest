@@ -33,6 +33,7 @@ namespace {
         });
     });
 
+    it('todo as a callable', function (): void {})->todo(...);
     it('todo chain', function (): void {})->todo();
     it('todo in the middle', function (): void {})->todo()->group('a');
     it('skipped', function (): void {})->skip();
@@ -56,6 +57,7 @@ namespace {
 PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
 PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
 PestEmptyTestClosure on line %d: The closure passed to test() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
 PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
 PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
 PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().

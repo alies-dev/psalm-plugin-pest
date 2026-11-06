@@ -42,7 +42,7 @@ final class EmptyTestClosureHandler implements AfterStatementAnalysisInterface
         $call = $stmt->expr;
         while ($call instanceof MethodCall) {
             $method = $call->name instanceof Identifier ? $call->name->toLowerString() : '';
-            if ($method === 'todo' || \str_starts_with($method, 'skip')) {
+            if (($method === 'todo' || \str_starts_with($method, 'skip')) && !$call->isFirstClassCallable()) {
                 return null;
             }
 
@@ -61,7 +61,10 @@ final class EmptyTestClosureHandler implements AfterStatementAnalysisInterface
             \in_array($name, self::FUNCTIONS, true) && !$functions->functionExists($source, $id) => $name,
             default => null,
         };
-        if ($function === null || !$functions->hasStubbedFunction($function)) {
+        $returns = $function !== null && $functions->hasStubbedFunction($function)
+            ? $functions->getStorage(null, $function)->signature_return_type?->getAtomicTypes()
+            : null;
+        if (!isset($returns[PestApi::TEST_CALL])) {
             return null;
         }
 
