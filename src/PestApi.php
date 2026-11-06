@@ -27,6 +27,9 @@ final class PestApi
     /** `->someProperty` / `->someMethod()` on an expectation of an object or array. */
     public const HIGHER_ORDER_EXPECTATION = 'Pest\Expectations\HigherOrderExpectation';
 
+    /** The one return type that makes `Pest\Expectation::__call()` hand back an `expect()->extend()` closure's result. */
+    public const ARCH_EXPECTATION = 'Pest\Arch\Contracts\ArchExpectation';
+
     /** What `@param-closure-this` names on `test()` / `it()` / `beforeEach()` / `afterEach()`. */
     public const TEST_CALL = 'Pest\PendingCalls\TestCall';
 

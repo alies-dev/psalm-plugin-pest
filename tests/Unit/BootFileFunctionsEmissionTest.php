@@ -16,8 +16,10 @@ use Symfony\Component\Process\Process;
  * project. Its `Pest.php` (plus a file it requires), `Helpers.php` and `Helpers/Nested/Deep.php`
  * declare functions that a Feature test calls (clean, and its `@psalm-check-type-exact` assertions
  * hold: the declared return types come along). Boot files see each other's functions from inside their
- * function bodies (run after boot). The only findings are a function nobody declares and a call to a
- * boot file function from `src/`, which is outside the tests directory.
+ * function bodies (run after boot). The findings are a function nobody declares and a call to a boot file
+ * function from `src/`, which is outside the tests directory. Expectations that `Pest.php` and a nested helper
+ * register with `expect()->extend()` resolve the same way: a wrong call is checked against the closure's
+ * signature, and an unregistered name or a call from `src/` is still reported.
  */
 #[CoversClass(BootFileFunctionsHandler::class)]
 final class BootFileFunctionsEmissionTest extends TestCase
@@ -48,7 +50,10 @@ final class BootFileFunctionsEmissionTest extends TestCase
         $this->assertSame(
             [
                 'src/outside.php: UndefinedFunction: Function buildThing does not exist, consider enabling the allFunctionsGlobal config option if scanning legacy codebases',
+                'src/outside.php: UndefinedMagicMethod: Magic method float(1)::tobeprice does not exist',
+                'tests/Feature/BootFunctions.php: TooFewArguments: Too few arguments for Pest\\Expectation::tobeprice - expecting expected to be passed',
                 'tests/Feature/BootFunctions.php: UndefinedFunction: Function undefinedEverywhere does not exist, consider enabling the allFunctionsGlobal config option if scanning legacy codebases',
+                'tests/Feature/BootFunctions.php: UndefinedMagicMethod: Magic method float(1)::tobenowhere does not exist',
             ],
             $findings,
         );

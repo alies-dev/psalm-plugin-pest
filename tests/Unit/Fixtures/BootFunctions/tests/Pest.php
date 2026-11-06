@@ -9,3 +9,8 @@ function buildThing(): int
 {
     return 1;
 }
+
+// Registered here and used from every test file, whatever the value's type.
+expect()->extend('toBePrice', function (float $expected): void {
+    $this->toBe($expected);
+});
