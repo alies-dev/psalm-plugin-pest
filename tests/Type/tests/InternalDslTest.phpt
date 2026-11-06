@@ -10,10 +10,6 @@ test('x')->group('g');
 
 pest()->printer()->compact();
 pest()->project()->github('spatie/calendar-links');
-pest()->tia()->always();
-pest()->tia()->directory('storage/tia')->locally();
-pest()->tia()->baselined();
-pest()->tia()->watch(['src/**' => 'tests']);
 arch('a')->expect('App')->toUseStrictTypes()->ignoring('App\\Legacy');
 arch('b')->expect('App')->classes()->not->toBeAbstract();
 
