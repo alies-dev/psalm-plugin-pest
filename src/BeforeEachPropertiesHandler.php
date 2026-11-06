@@ -21,9 +21,11 @@ use Psalm\Internal\Analyzer\ClosureAnalyzer;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\AfterFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeStatementAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\AfterFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeStatementAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyTypeProviderEvent;
 use Psalm\Plugin\EventHandler\Event\PropertyVisibilityProviderEvent;
@@ -58,15 +60,16 @@ use Psalm\Type\Union;
  * before any assignment is `mixed`, as is a property only ever assigned `null`. A read in `afterEach()` is also `null`, as `beforeEach()`
  * may have thrown first, but without `PossiblyNull*` issues: only guards see it. Psalm hands that flag on to
  * members (`$this->x->y`), aliases and merged branches, so in `afterEach()` a fixture's nullable member, or a
- * null it later picks up, is not reported either. Hooks in `Pest.php`
- * (`pest()->beforeEach(...)->in('Feature')`) seed the types for the files they target ({@see UsesParser}).
+ * null it later picks up, is not reported either. Psalm reconciles an `isset()` that is the left operand of `&&`
+ * against a read made without a source, so the statement being analysed says whether that read is in `afterEach()`.
+ * Hooks in `Pest.php` (`pest()->beforeEach(...)->in('Feature')`) seed the types for the files they target ({@see UsesParser}).
  *
  * Instance properties only: Psalm resolves `self::$name` through the same existence provider and,
  * once it answers true, reads a static property record the TestCase does not have (an undefined-key
  * crash). The event carries neither the access kind nor a reliable node, so the file's static
  * accesses to the TestCase are recorded and the providers decline those names.
  */
-final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, AfterFileAnalysisInterface, BeforeFileAnalysisInterface
+final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, AfterFileAnalysisInterface, BeforeFileAnalysisInterface, BeforeStatementAnalysisInterface
 {
     /** @var array<int, list<string>> start offset of each `$this->name = ...` (or write through an element of it) in a `beforeEach()` closure => name; a destructuring has one per property it targets */
     private static array $assignments = [];
@@ -79,6 +82,9 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
 
     /** @var array<string, true> ids of the `afterEach()` closures, which may run after a `beforeEach()` that threw */
     private static array $afterEach = [];
+
+    /** @var bool whether the statement being analysed is in an `afterEach()` closure: Psalm's reconciler reads properties without a source */
+    private static bool $teardown = false;
 
     /** @var array<string, true> static accesses as `self::name`, `*::name` (dynamic class) or `lowercase\fq\class::name` */
     private static array $statics = [];
@@ -129,7 +135,10 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                     return Type::getMixed();
                 }
 
-                if ($type->isNullable() || $type->isMixed() || !self::inAfterEach($event->getSource())) {
+                // Psalm's reconciler reads without a source (the left operand of `&&`), so the statement decides.
+                $source = $event->getSource();
+                $teardown = $source instanceof StatementsSource ? self::inAfterEach($source) : self::$teardown;
+                if ($type->isNullable() || $type->isMixed() || !$teardown) {
                     return $type;
                 }
 
@@ -243,6 +252,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         self::$coalesced = [];
         self::$seeded = [];
         self::$afterEach = [];
+        self::$teardown = false;
         self::$statics = [];
 
         // Names written as a whole (`$this->name = ...`, `??=`) and names written only through an element.
@@ -310,6 +320,17 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         [self::$assignments, self::$afterEach, self::$statics, self::$types, self::$declared, $bound, self::$coalesced, self::$seeded] = \array_pop(self::$outer) ?? [[], [], [], [], [], [], [], []];
         BoundTestCase::reinstate($event->getCodebase(), $bound);
+        self::$teardown = false;
+    }
+
+    #[\Override]
+    public static function beforeStatementAnalysis(BeforeStatementAnalysisEvent $event): ?bool
+    {
+        if (self::$afterEach !== []) {
+            self::$teardown = self::inAfterEach($event->getStatementsSource());
+        }
+
+        return null;
     }
 
     /**
