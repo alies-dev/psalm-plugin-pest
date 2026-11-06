@@ -63,6 +63,7 @@ it('totals the cart', function () {
 | `expect($user)->name->toBe('Ada')` | `Expectation<T>` through `->not`, `->each` and member access |
 | `expect($user)->not->toBeNull()` | `$user` narrowed to non-null afterwards |
 | `pest()->printer()`, arch chains | Public API, no `InternalMethod` noise |
+| `pest()->browser()->inChrome()`, `visit('/')->click('Login')->assertSee('Welcome')` | Pest Browser chains resolve to the page API, no `InternalMethod` or `UndefinedMagicMethod` |
 | `arch()->preset()->php()` | A resolved higher order call, like the TestCase methods |
 
 ## Bugs it catches
