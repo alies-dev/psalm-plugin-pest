@@ -288,6 +288,32 @@ namespace {
         /** @psalm-check-type-exact $_headers = array<array-key, string> */
     });
 
+    // A test may precede the beforeEach() that destructures into the property.
+    it('knows a destructured property assigned later in the file', function (): void {
+        $_known = isset($this->user);
+    });
+
+    // Properties assigned by destructuring (list(), short syntax, keyed, nested, skipped) are declared (#47).
+    beforeEach(function (): void {
+        [$this->user, $this->team] = [new PestBeforeEachFixture\Foo(), new PestBeforeEachFixture\Bar()];
+        ['label' => $this->label] = ['label' => 'x'];
+        list($this->first, list(, $this->second)) = [1, [2, 'two']];
+    });
+
+    test('reads properties assigned by destructuring', function (): void {
+        $_user = $this->user;
+        /** @psalm-check-type-exact $_user = PestBeforeEachFixture\Foo */
+        $_team = $this->team;
+        /** @psalm-check-type-exact $_team = PestBeforeEachFixture\Bar */
+        $_label = $this->label;
+        /** @psalm-check-type-exact $_label = string */
+        $_first = $this->first;
+        /** @psalm-check-type-exact $_first = int */
+        $_second = $this->second;
+        /** @psalm-check-type-exact $_second = string */
+        $_absent = $this->absent;
+    });
+
     // Fixtures are instance properties: a static access to one stays undefined, and never crashes. The
     // name is then not a fixture of this file at all, so the beforeEach() assignment reports too.
     beforeEach(function (): void {
@@ -315,6 +341,7 @@ UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\T
 InvalidArrayOffset on line %d: Cannot access value on variable $this->shape using offset value of 'typo', expecting 'known' or 'added'
 RedundantCondition on line %d: Type PestBeforeEachFixture\Foo for $this->primary is always isset
 TypeDoesNotContainType on line %d: Cannot resolve types for $this->primary with type PestBeforeEachFixture\Foo and !isset assertion
+UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$absent is not defined
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
