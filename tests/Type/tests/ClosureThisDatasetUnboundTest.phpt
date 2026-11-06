@@ -1,7 +1,7 @@
 --FILE--
 <?php declare(strict_types=1);
 
-// Pest binds a dataset row to the test that consumes it, which is not known here: with no TestCase declared for this file the row stays unbound.
+// No TestCase is known for this file (no uses(), and psalm-tester runs it outside any tests/ tree), so a dataset row stays unbound.
 dataset('rows', ['a' => fn (): string => $this->token]);
 ?>
 --EXPECTF--

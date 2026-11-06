@@ -22,6 +22,9 @@ use Symfony\Component\Process\Process;
  * also binds a trait and a `beforeEach()` property to `Feature/`: Feature/Shared.php reads both
  * (clean), also through a `static` return of the trait, while the Unit test does not get them. An
  * undefined property in a Feature file reports only itself, as the trait is no intersection member.
+ * Dataset rows: those in a test file get its TestCase, and so do those of a shared dataset file
+ * below a directory Pest.php maps, while a shared dataset under the fallback TestCase (in
+ * Unit/Datasets/ or in Pest.php itself) stays unbound. Each finding names its file.
  */
 #[CoversClass(ClosureThisHandler::class)]
 final class ClosureThisEmissionTest extends TestCase
@@ -43,21 +46,21 @@ final class ClosureThisEmissionTest extends TestCase
 
         $findings = [];
         foreach ($decoded as $finding) {
-            if (\is_array($finding) && \is_string($finding['type'] ?? null) && \is_string($finding['message'] ?? null)) {
-                $findings[] = $finding['type'] . ': ' . $finding['message'];
+            if (\is_array($finding) && \is_string($finding['file_name'] ?? null) && \is_string($finding['type'] ?? null) && \is_string($finding['message'] ?? null)) {
+                $findings[] = $finding['file_name'] . ': ' . $finding['type'] . ': ' . $finding['message'];
             }
         }
 
         \sort($findings);
         $this->assertSame(
             [
-                'InvalidScope: Invalid reference to $this in a non-class context',
-                'InvalidScope: Invalid reference to $this in a non-class context',
-                'UndefinedMethod: Method PHPUnit\Framework\TestCase::createUser does not exist',
-                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$defaultOnly is not defined',
-                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',
-                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$shared is not defined',
-                'UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',
+                'tests/Feature/Isolated.php: UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',
+                'tests/Pest.php: InvalidScope: Invalid reference to $this in a non-class context',
+                'tests/Unit/Datasets/Rows.php: InvalidScope: Invalid reference to $this in a non-class context',
+                'tests/Unit/Defaults.php: UndefinedMethod: Method PHPUnit\Framework\TestCase::createUser does not exist',
+                'tests/Unit/Defaults.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$defaultOnly is not defined',
+                'tests/Unit/Defaults.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',
+                'tests/Unit/Defaults.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$shared is not defined',
             ],
             $findings,
         );

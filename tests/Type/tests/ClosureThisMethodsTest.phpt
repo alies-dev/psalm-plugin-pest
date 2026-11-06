@@ -22,11 +22,10 @@ namespace {
         })
         ->afterEach(fn() => $this->counter);
 
-    // Pest binds a dataset closure to the test case, too.
-    test('dataset closures are bound', function (int $n): void {
+    // A closure that is the whole dataset, a generator too, runs in Pest's static data provider: unbound.
+    test('dataset closures stay unbound', function (int $n): void {
         expect($n)->toBeInt();
     })->with(function () {
-        /** @psalm-check-type-exact $this = PestClosureMethodsFixture\TestCase */
         yield $this->number();
     })->with(fn() => [$this->number()]);
 
@@ -50,5 +49,7 @@ namespace {
 }
 ?>
 --EXPECTF--
+InvalidScope on line %d: Invalid reference to $this in a non-class context
+InvalidScope on line %d: Invalid reference to $this in a non-class context
 InvalidScope on line %d: Invalid reference to $this in a non-class context
 InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure%S, but 'not a closure' provided

@@ -6,7 +6,9 @@ namespace AliesDev\PsalmPluginPest;
 
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
@@ -15,7 +17,6 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use Psalm\Codebase;
-use Psalm\Internal\Codebase\Functions;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
@@ -29,11 +30,14 @@ use Psalm\Type\Union;
 
 /**
  * Binds `$this` in the closures Pest runs on the TestCase: `test()` / `it()` / `beforeEach()` /
- * `afterEach()`, `TestCall::with()` datasets and `after()` closures, the hooks of a `uses()` / `pest()` chain and the
- * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain.
+ * `afterEach()`, `TestCall::after()` closures, the hooks of a `uses()` / `pest()` chain, the
+ * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain, and the closure
+ * rows of a `with([...])` / `describe()->with([...])` / `dataset('x', [...])` array literal
+ * ({@see DatasetRows}). A closure that is a whole dataset (`with(fn () => [...])`) is not bound:
+ * Pest calls it from its static data provider.
  *
  * Pest tags them `@param-closure-this TestCall`, whose `@mixin` union Psalm does not honor; the
- * `with()` and `UsesCall` closures carry no tag. A params provider answers per call site (no shared
+ * dataset and `UsesCall` closures carry no tag. A params provider answers per call site (no shared
  * state), and functions are registered only when the scanned one carries Pest's tag. It sees the
  * arguments but not the receiver, so a `UsesCall` hook is bound to the classes its own chain names
  * (`uses(A::class)->in('Feature')->beforeEach(...)`), and `Expectation::and()` only when its chain
@@ -46,7 +50,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
 
     /** Pest methods whose first parameter is a closure that runs on the TestCase. */
     private const METHODS = [
-        PestApi::TEST_CALL => ['with', 'after'],
+        PestApi::TEST_CALL => ['after'],
         PestApi::BEFORE_EACH_CALL => ['after'],
         PestApi::USES_CALL => ['beforeeach', 'aftereach'],
         PestApi::EXPECTATION => ['and'],
@@ -101,12 +105,27 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         $class = $event->getFqClasslikeName();
         $method = $event->getMethodNameLowercase();
         $source = $event->getStatementsSource();
-        $arg = ($event->getCallArgs() ?? [])[0] ?? null;
-        if (!\in_array($method, self::METHODS[$class] ?? [], true) || !$source instanceof \Psalm\StatementsSource || $arg === null) {
+        $args = $event->getCallArgs() ?? [];
+        $arg = $args[0] ?? null;
+        if (!$source instanceof \Psalm\StatementsSource || $arg === null) {
             return null;
         }
 
         $codebase = $source->getCodebase();
+        if ($class === PestApi::TEST_CALL && $method === 'with') {
+            $file = $source->getFilePath();
+            $type = self::prepare($codebase, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
+            if ($type instanceof Union) {
+                self::bindRows($type, self::values($args), self::testParameterTypes($arg->getAttribute(self::RECEIVER)));
+            }
+
+            return null;
+        }
+
+        if (!\in_array($method, self::METHODS[$class] ?? [], true)) {
+            return null;
+        }
+
         $params = BoundTestCase::storage($codebase, $class)?->methods[$method]->params ?? null;
         if ($params === null) {
             return null;
@@ -126,16 +145,13 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             $traits = BoundTestCase::traits($codebase, $file);
         }
 
-        $bound = self::bind($codebase, $params, 0, $type, $traits);
-        if ($class === PestApi::TEST_CALL && $method === 'with' && $type instanceof Union) {
-            self::bindRows($type, \array_map(static fn(Arg $arg): Expr => $arg->value, $event->getCallArgs() ?? []));
-        }
-
-        return $bound;
+        return self::bind($codebase, $params, 0, $type, $traits);
     }
 
     /**
-     * `describe(...)->with([...])` replays `with()` on the `TestCall` of every test in the block.
+     * `describe(...)->with([...])` replays `with()` on the `TestCall` of every test in the block. Only
+     * the rows are bound: the params come back unchanged, as a closure that is the whole dataset is
+     * called unbound. The tests of the block are not followed, so every closure row is bound.
      *
      * @param array<int, FunctionLikeParameter> $params the params of `TestCall::with()`
      * @param list<Arg> $args
@@ -143,12 +159,21 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      */
     public static function bindWith(Codebase $codebase, string $file, array $params, array $args): array
     {
-        $type = BoundTestCase::thisType($codebase, $file);
+        $type = self::prepare($codebase, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
         if ($type instanceof Union) {
-            self::bindRows($type, \array_map(static fn(Arg $arg): Expr => $arg->value, $args));
+            self::bindRows($type, self::values($args));
         }
 
-        return self::bind($codebase, $params, 0, $type, BoundTestCase::traits($codebase, $file));
+        return $params;
+    }
+
+    /**
+     * @param list<Arg> $args
+     * @return list<Expr>
+     */
+    private static function values(array $args): array
+    {
+        return \array_map(static fn(Arg $arg): Expr => $arg->value, $args);
     }
 
     /**
@@ -189,9 +214,10 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                 // Pest binds a shared dataset (`Datasets.php`, `Datasets/`, `Pest.php`) to the test that consumes it, not to its own file's fallback TestCase.
                 $shared = TestCaseResolver::declaresSharedDatasets(BoundTestCase::testsDir($codebase), $file);
                 if ($type instanceof Union && (!$shared || $type->getId() !== TestCaseResolver::DEFAULT_TEST_CASE) && $dataset instanceof Arg) {
-                    // Only for the side effects of binding; the closure parameter itself stays unbound.
-                    self::bind($codebase, $params, 1, $type, BoundTestCase::traits($codebase, $file));
-                    self::bindRows($type, [$dataset->value]);
+                    $type = self::prepare($codebase, $type, BoundTestCase::traits($codebase, $file));
+                    if ($type instanceof Union) {
+                        self::bindRows($type, [$dataset->value]);
+                    }
                 }
 
                 return $params;
@@ -204,10 +230,11 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      * that is itself an argument. Rows inside an array literal are never arguments, so they get it here.
      *
      * @param list<Expr> $datasets
+     * @param array<string, string>|null $parameterTypes see {@see DatasetRows::closures()}
      */
-    private static function bindRows(Union $type, array $datasets): void
+    private static function bindRows(Union $type, array $datasets, ?array $parameterTypes = null): void
     {
-        foreach (DatasetRows::closures($datasets) as $closure) {
+        foreach (DatasetRows::closures($datasets, $parameterTypes) as $closure) {
             $closure->setAttribute('psalm-closure-this-type', $type);
         }
     }
@@ -243,6 +270,12 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      */
     private static function startsAtTest(mixed $link): bool
     {
+        return self::testCall($link) instanceof FuncCall;
+    }
+
+    /** The `it('x')` / `test('x')` call a chain starts at, if any. */
+    private static function testCall(mixed $link): ?FuncCall
+    {
         while ($link instanceof MethodCall || $link instanceof NullsafeMethodCall || $link instanceof PropertyFetch || $link instanceof NullsafePropertyFetch) {
             $link = $link->var;
         }
@@ -250,7 +283,77 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         return $link instanceof FuncCall
             && $link->name instanceof Name
             && $link->args !== []
-            && \in_array(\strtolower(NameResolution::resolved($link->name) ?? $link->name->toString()), ['it', 'test'], true);
+            && \in_array(\strtolower(NameResolution::resolved($link->name) ?? $link->name->toString()), ['it', 'test'], true)
+            ? $link
+            : null;
+    }
+
+    /**
+     * The parameter types of the test closure of a `with()` chain, as `Reflection::getFunctionArguments()`
+     * spells them, or null when the closure is not in sight or `repeat()` adds an argument to every row.
+     *
+     * @return array<string, string>|null
+     */
+    private static function testParameterTypes(mixed $receiver): ?array
+    {
+        if (!$receiver instanceof Expr) {
+            return null;
+        }
+
+        $link = $receiver;
+        while ($link instanceof MethodCall) {
+            if ($link->name instanceof Identifier && $link->name->toLowerString() === 'repeat') {
+                return null;
+            }
+
+            $link = $link->var;
+        }
+
+        $closure = null;
+        foreach (self::testCall($receiver)?->args ?? [] as $position => $arg) {
+            $name = $arg instanceof Arg ? $arg->name?->name : '';
+            if ($arg instanceof Arg && ($name === 'closure' || ($name === null && $position === 1))) {
+                $closure = $arg->value;
+            }
+        }
+
+        if (!$closure instanceof Closure && !$closure instanceof ArrowFunction) {
+            return null;
+        }
+
+        $types = [];
+        foreach ($closure->params as $param) {
+            if (!$param->var instanceof Expr\Variable || !\is_string($param->var->name)) {
+                return null;
+            }
+
+            $types[$param->var->name] = self::typeName($param->type);
+        }
+
+        return $types;
+    }
+
+    /** `ReflectionNamedType::getName()`, or the names of a union joined by `|`; an untyped parameter is `mixed`. */
+    private static function typeName(mixed $type): string
+    {
+        if ($type instanceof \PhpParser\Node\NullableType) {
+            return self::typeName($type->type);
+        }
+
+        if ($type instanceof \PhpParser\Node\UnionType) {
+            $names = \array_map(self::typeName(...), $type->types);
+            $nonNull = \array_values(\array_diff($names, ['null']));
+
+            // PHP reflects `T|null` as the named type `?T`.
+            return \count($nonNull) === 1 ? $nonNull[0] : \implode('|', $names);
+        }
+
+        return match (true) {
+            $type === null => 'mixed',
+            $type instanceof Identifier => $type->toLowerString(),
+            $type instanceof Name => \ltrim(NameResolution::resolved($type) ?? $type->toString(), '\\'),
+            default => '',
+        };
     }
 
     /**
@@ -278,9 +381,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     }
 
     /**
-     * Binds the closure parameter at `$offset` to `$type`, lets that TestCase's file declare its
-     * `beforeEach()` properties and exposes the bound `$traits`' methods on it. Returns the params unchanged, never null (a function provider's null
-     * would skip argument checking), when the TestCase is unknown.
+     * Binds the closure parameter at `$offset` to `$type`, after {@see self::prepare()}. Returns the
+     * params unchanged, never null (a function provider's null would skip argument checking), when
+     * the TestCase is unknown.
      *
      * @param array<int, FunctionLikeParameter> $params
      * @param list<string> $traits
@@ -288,17 +391,33 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      */
     public static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
     {
-        $class = $type?->getSingleAtomic();
-        if (!$class instanceof TNamedObject) {
+        $type = self::prepare($codebase, $type, $traits);
+        if (!$type instanceof Union) {
             return $params;
         }
-
-        BeforeEachPropertiesHandler::register($codebase, $class->value);
-        BoundTestCase::expose($codebase, $class->value, $traits);
 
         $params[$offset] = clone $params[$offset];
         $params[$offset]->closure_this_type = $type;
 
         return $params;
+    }
+
+    /**
+     * Lets the TestCase `$type` names declare its file's `beforeEach()` properties and exposes the
+     * bound `$traits`' methods on it, before a closure is bound to it. Null when it names no single class.
+     *
+     * @param list<string> $traits
+     */
+    private static function prepare(Codebase $codebase, ?Union $type, array $traits): ?Union
+    {
+        $class = $type?->getSingleAtomic();
+        if (!$class instanceof TNamedObject) {
+            return null;
+        }
+
+        BeforeEachPropertiesHandler::register($codebase, $class->value);
+        BoundTestCase::expose($codebase, $class->value, $traits);
+
+        return $type;
     }
 }
