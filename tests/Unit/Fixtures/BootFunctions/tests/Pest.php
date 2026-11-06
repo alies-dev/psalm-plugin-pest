@@ -9,3 +9,13 @@ function buildThing(): int
 {
     return 1;
 }
+
+// Registered here and used from every test file, whatever the value's type.
+expect()->extend('toBePrice', function (float $expected): void {
+    $this->toBe($expected);
+});
+
+// The test file registers this name again; its registration runs later and wins.
+expect()->extend('toBeOverridden', function (float $expected): void {
+    $this->toBe($expected);
+});

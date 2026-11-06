@@ -18,16 +18,21 @@ final class Plugin implements PluginEntryPointInterface
     private const HANDLERS = [
         InternalDslHandler::class,
         ExpectationHandler::class,
+        BrowserHandler::class,
         ClosureThisHandler::class,
         HigherOrderTestHandler::class,
         DescribeCallHandler::class,
         CurrentTestHandler::class,
         BootFileFunctionsHandler::class,
+        CustomExpectations::class,
         BeforeEachPropertiesHandler::class,
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,
         StaticTestClosureHandler::class,
         DuplicateTestDescriptionHandler::class,
+        CoversTargetHandler::class,
+        InvalidGroupNameHandler::class,
+        RepeatCountHandler::class,
     ];
 
     #[\Override]
@@ -36,6 +41,7 @@ final class Plugin implements PluginEntryPointInterface
         // A reused process (language server, tests) must not see the previous run's answers.
         TestCaseResolver::reset();
         BootFileFunctionsHandler::reset();
+        CustomExpectations::reset();
 
         foreach (self::HANDLERS as $handler) {
             // registerHooksFromClass() checks class_exists($handler, false) and never autoloads.
