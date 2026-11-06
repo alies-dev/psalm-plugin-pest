@@ -22,6 +22,8 @@ use Symfony\Component\Process\Process;
  * also binds a trait and a `beforeEach()` property to `Feature/`: Feature/Shared.php reads both
  * (clean), also through a `static` return of the trait, while the Unit test does not get them. An
  * undefined property in a Feature file reports only itself, as the trait is no intersection member.
+ * The closure rows of shared datasets (Feature/Datasets/, Unit/Datasets/, Pest.php) are clean: they
+ * get the TestCase and trait of their directory, or the fallback TestCase.
  */
 #[CoversClass(ClosureThisHandler::class)]
 final class ClosureThisEmissionTest extends TestCase

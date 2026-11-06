@@ -18,3 +18,6 @@ pest()
         $this->maybe = null;
     })
     ->in('Feature');
+
+// Declared in the boot file: shared like a Datasets/ file, so its rows get the fallback TestCase.
+dataset('boot rows', ['row' => fn(): object => $this->createMock(Countable::class)]);
