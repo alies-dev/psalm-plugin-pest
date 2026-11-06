@@ -81,7 +81,7 @@ Suppress any of them like a regular Psalm issue.
 ## Known limitations
 
 * `tests/Pest.php` is looked up next to your Psalm config. A test file outside `tests/` keeps Pest's own types.
-* Files are parsed, never executed. A boot file with dynamic `uses()` calls disables TestCase resolution for the suite.
+* Files are parsed, never executed. A boot file with dynamic `uses()` calls disables TestCase resolution for the suite. So does a `'uses'` or `'pest'` string that could be called (`call_user_func('uses', ...)`, a variable holding it that is called, passed to a callback function or returned). The same string as an array key, a comparison operand, a method argument or a plain config value is fine.
 * Config only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
 * Custom expectations from `expect()->extend()` are still reported.
 * Custom presets (`arch()->preset()->myPreset()`, registered with `pest()->presets()->custom()`) are still reported, because Pest resolves them through `Preset::__call()`.

@@ -296,6 +296,13 @@ final class UsesParserTest extends TestCase
         yield 'describe with an arrow function' => ["describe('x', fn () => uses(Tests\\TestCase::class));"];
         yield 'string callee' => ["'uses'(Tests\\TestCase::class);"];
         yield 'string callable argument' => ["array_map('pest', []);"];
+        yield 'string callable argument of call_user_func_array' => ["call_user_func_array('Pest', [Tests\\TestCase::class]);"];
+        yield 'string callable argument of a static call' => ["Closure::fromCallable('uses')(Tests\\TestCase::class);"];
+        yield 'string callee through a variable' => ["\$f = 'uses';\n\$f(Tests\\TestCase::class)->in('x');"];
+        yield 'string callee through a copied variable' => ["\$f = 'uses';\n\$g = \$f;\n\$g(Tests\\TestCase::class)->in('x');"];
+        yield 'string callback through a variable' => ["\$f = 'pest';\narray_map(\$f, []);"];
+        yield 'string in a callback list' => ["array_map('call_user_func', ['uses']);\n\$cb = ['uses'];\n\$cb[0](Tests\\TestCase::class);"];
+        yield 'string returned' => ["function f() { return 'uses'; }\nf()(Tests\\TestCase::class);"];
         yield 'include with a relative path' => ["require 'bindings.php';"];
         yield 'assigned' => ['$config = pest()->extend(Tests\TestCase::class);'];
         yield 'nested in a closure' => ['beforeEach(function () { uses(Tests\TestCase::class); });'];
@@ -334,6 +341,30 @@ final class UsesParserTest extends TestCase
             [['classes' => ['Tests\ApiCase'], 'targets' => [$testFile], 'properties' => []]],
             UsesParser::parse($testFile, "<?php\nuses(Tests\\ApiCase::class);\ntest('x', function () { \$data = ['uses' => 10, 'pest' => \$route['uses']]; });", bootFile: false),
         );
+    }
+
+    #[Test]
+    public function strings_named_uses_or_pest_as_plain_values_do_not_decline(): void
+    {
+        $uses = ['classes' => ['Tests\TestCase'], 'targets' => [$this->root . '/tests/Feature'], 'properties' => []];
+        $bareChain = ['classes' => [], 'targets' => [$this->root . '/tests'], 'properties' => []];
+        $sources = [
+            "pest()->group('pest');" => [$uses, $bareChain],
+            "pest()->group('Pest', 'uses');" => [$uses, $bareChain],
+            "pest()->tia()->watch(['pest' => ['uses', 'Pest']]);" => [$uses, $bareChain],
+            "test('shows the answer', function (): void { \$answer = 'Pest'; });" => [$uses],
+            "test('x', function () { expect('pest')->toBe('uses'); expect(\$a)->toContain('Pest'); });" => [$uses],
+            "test('x', function () { \$this->get('/x', ['label' => 'uses'])->assertSee('pest'); });" => [$uses],
+            "test('x', function () { \$name = 'Pest'; expect(\$name)->toBe('Pest'); echo \$name . '!'; });" => [$uses],
+            "test('x', function () { \$a = \$b ?? 'uses'; if (\$a === 'pest') {} });" => [$uses],
+            "test('x', function () { \$label = 'uses'; \$other = \$label; expect(\$other)->toBe('uses'); });" => [$uses],
+            "test('x', function () { User::factory()->create(['name' => 'Pest']); new Foo('uses'); });" => [$uses],
+            "\$config = ['label' => 'uses', 'items' => ['pest']];\nexpect(\$config)->toBeArray();" => [$uses],
+        ];
+
+        foreach ($sources as $source => $expected) {
+            $this->assertSame($expected, $this->parsePest("uses(Tests\\TestCase::class)->in('Feature');\n" . $source), $source);
+        }
     }
 
     #[Test]
