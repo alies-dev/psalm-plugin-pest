@@ -18,6 +18,7 @@ final class Plugin implements PluginEntryPointInterface
     private const HANDLERS = [
         InternalDslHandler::class,
         ExpectationHandler::class,
+        BrowserHandler::class,
         ClosureThisHandler::class,
         HigherOrderTestHandler::class,
         DescribeCallHandler::class,
