@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use PhpParser\Node\Arg;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
@@ -27,8 +28,9 @@ use Psalm\Type\Union;
 
 /**
  * Binds `$this` in the closures Pest runs on the TestCase: `test()` / `it()` / `beforeEach()` /
- * `afterEach()`, `TestCall::with()` datasets and `after()` closures, the hooks of a `uses()` / `pest()` chain and the
- * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain.
+ * `afterEach()`, `TestCall::with()` datasets and `after()` closures, the hooks of a `uses()` / `pest()` chain, the
+ * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain, and the closure rows
+ * of a `with()` / `describe()->with()` / `beforeEach()->with()` / `dataset()` dataset ({@see DatasetRows}).
  *
  * Pest tags them `@param-closure-this TestCall`, whose `@mixin` union Psalm does not honor; the
  * `with()` and `UsesCall` closures carry no tag. A params provider answers per call site (no shared
@@ -82,6 +84,61 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                 }
             }
         }
+
+        self::bindDatasetFunction($event->getCodebase());
+    }
+
+    /**
+     * `dataset('x', [...])` carries no closure tag: the provider only binds its rows. Another
+     * autoloaded `dataset()` is not Pest's, which sits in `src/Functions.php` next to `src/PendingCalls/`.
+     */
+    private static function bindDatasetFunction(Codebase $codebase): void
+    {
+        $functions = $codebase->functions;
+        $testCall = BoundTestCase::storage($codebase, PestApi::TEST_CALL)?->location?->file_path;
+        if ($testCall === null
+            || !$functions->hasStubbedFunction('dataset')
+            || $functions->getStorage(null, 'dataset')->location?->file_path !== \dirname($testCall, 2) . \DIRECTORY_SEPARATOR . 'Functions.php'
+        ) {
+            return;
+        }
+
+        $params = $functions->getStorage(null, 'dataset')->params;
+        $functions->params_provider->registerClosure(
+            'dataset',
+            static function (FunctionParamsProviderEvent $event) use ($params): array {
+                $source = $event->getStatementsSource();
+                $datasets = [];
+                foreach ($event->getCallArgs() as $position => $arg) {
+                    if ($arg->name?->name === 'dataset' || ($arg->name === null && $position === 1)) {
+                        $datasets[] = $arg;
+                    }
+                }
+
+                self::bindRows($source->getCodebase(), $source->getFilePath(), $datasets);
+
+                return $params;
+            },
+        );
+    }
+
+    /**
+     * Psalm reads a closure's bound `$this` from this node attribute, which it sets only on a closure
+     * that is itself an argument: the rows of a dataset get it here, before the arguments are analyzed.
+     * A shared dataset file (`Datasets/`, `Pest.php`) gets the TestCase of its directory, else the fallback one.
+     *
+     * @param list<Arg> $args the datasets
+     */
+    public static function bindRows(Codebase $codebase, string $file, array $args): void
+    {
+        $type = self::prepare($codebase, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
+        if (!$type instanceof Union) {
+            return;
+        }
+
+        foreach (DatasetRows::closures(\array_map(static fn(Arg $arg): Expr => $arg->value, $args)) as $closure) {
+            $closure->setAttribute('psalm-closure-this-type', $type);
+        }
     }
 
     /** @psalm-pure */
@@ -98,6 +155,10 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         $method = $event->getMethodNameLowercase();
         $source = $event->getStatementsSource();
         $arg = ($event->getCallArgs() ?? [])[0] ?? null;
+        if ($method === 'with' && $source instanceof \Psalm\StatementsSource && \in_array($class, [PestApi::TEST_CALL, PestApi::BEFORE_EACH_CALL], true)) {
+            self::bindRows($source->getCodebase(), $source->getFilePath(), $event->getCallArgs() ?? []);
+        }
+
         if (!\in_array($method, self::METHODS[$class] ?? [], true) || !$source instanceof \Psalm\StatementsSource || $arg === null) {
             return null;
         }
@@ -188,9 +249,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     }
 
     /**
-     * Binds the closure parameter at `$offset` to `$type`, lets that TestCase's file declare its
-     * `beforeEach()` properties and exposes the bound `$traits`' methods on it. Returns the params unchanged, never null (a function provider's null
-     * would skip argument checking), when the TestCase is unknown.
+     * Binds the closure parameter at `$offset` to `$type`, after {@see self::prepare()}. Returns the
+     * params unchanged, never null (a function provider's null would skip argument checking), when
+     * the TestCase is unknown.
      *
      * @param array<int, FunctionLikeParameter> $params
      * @param list<string> $traits
@@ -198,17 +259,33 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      */
     public static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
     {
-        $class = $type?->getSingleAtomic();
-        if (!$class instanceof TNamedObject) {
+        $type = self::prepare($codebase, $type, $traits);
+        if (!$type instanceof Union) {
             return $params;
         }
-
-        BeforeEachPropertiesHandler::register($codebase, $class->value);
-        BoundTestCase::expose($codebase, $class->value, $traits);
 
         $params[$offset] = clone $params[$offset];
         $params[$offset]->closure_this_type = $type;
 
         return $params;
+    }
+
+    /**
+     * Lets the TestCase `$type` names declare its file's `beforeEach()` properties and exposes the
+     * bound `$traits`' methods on it. Null when it names no single class.
+     *
+     * @param list<string> $traits
+     */
+    private static function prepare(Codebase $codebase, ?Union $type, array $traits): ?Union
+    {
+        $class = $type?->getSingleAtomic();
+        if (!$class instanceof TNamedObject) {
+            return null;
+        }
+
+        BeforeEachPropertiesHandler::register($codebase, $class->value);
+        BoundTestCase::expose($codebase, $class->value, $traits);
+
+        return $type;
     }
 }
