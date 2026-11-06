@@ -27,6 +27,10 @@ namespace {
         ->coversFunction('')
         ->covers('');
 
+    it('methods are not covers targets', function (): void {})
+        ->coversFunction('DateTime::format')
+        ->covers('DateTime::format');
+
     it('known targets', function (): void {})
         ->coversClass(Post::class, 'PestCoversFixture\Post', '\pestcoversfixture\POST', \stdClass::class, 'PHPUnit\Framework\Assert', 'Composer\Semver\VersionParser')
         ->coversTrait('PestCoversFixture\Loggable')
@@ -54,3 +58,5 @@ PestUnknownCoversTarget on line %d: No class or trait named "" exists.
 PestUnknownCoversTarget on line %d: No class or trait named "\" exists.
 PestUnknownCoversTarget on line %d: No function named "" exists.
 PestUnknownCoversTarget on line %d: No class, trait or function named "" exists.
+PestUnknownCoversTarget on line %d: No function named "DateTime::format" exists.
+PestUnknownCoversTarget on line %d: No class, trait or function named "DateTime::format" exists.

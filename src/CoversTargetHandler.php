@@ -80,8 +80,11 @@ final class CoversTargetHandler implements AfterMethodCallAnalysisInterface
     /** Like Psalm's call analysis: a function only the callmap or a stub knows (extension not loaded) still exists. */
     private static function functionExists(Codebase $codebase, StatementsAnalyzer $analyzer, string $name): bool
     {
-        return $codebase->functions->functionExists($analyzer, \strtolower($name))
+        // The callmap also lists `Class::method`; Pest rejects those as covers targets.
+        return !\str_contains($name, '::') && (
+            $codebase->functions->functionExists($analyzer, \strtolower($name))
             || InternalCallMapHandler::inCallMap($name)
-            || $codebase->functions->hasStubbedFunction($name);
+            || $codebase->functions->hasStubbedFunction($name)
+        );
     }
 }
