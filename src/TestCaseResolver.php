@@ -71,6 +71,14 @@ final class TestCaseResolver
         return $files !== null && self::targets([UsesParser::realpath($testsDir)], UsesParser::realpath($testFile)) ? $files : [];
     }
 
+    /** `DatasetInfo::isADatasetsFile()` / `isInsideADatasetsDirectory()`: a dataset declared here is consumed by tests of other files. */
+    public static function isSharedDatasetFile(string $testsDir, string $file): bool
+    {
+        $relativeDirs = \explode(\DIRECTORY_SEPARATOR, \dirname(\substr($file, \strlen($testsDir) + 1)));
+
+        return \basename($file) === self::DATASETS . '.php' || \in_array(self::DATASETS, $relativeDirs, true);
+    }
+
     /**
      * @param \Closure(string): ?bool $isClass
      * @return TestCaseBinding|null
@@ -177,8 +185,7 @@ final class TestCaseResolver
                     || !\str_starts_with($entry->getFilename(), '.'),
             );
             foreach (self::phpFiles($datasets) as $file) {
-                $relativeDirs = \explode(\DIRECTORY_SEPARATOR, \dirname(\substr($file, \strlen($testsDir) + 1)));
-                if (\basename($file) === self::DATASETS . '.php' || \in_array(self::DATASETS, $relativeDirs, true)) {
+                if (self::isSharedDatasetFile($testsDir, $file)) {
                     $files[] = $file;
                 }
             }

@@ -14,3 +14,6 @@ test('does not get the Feature trait or hook property', function (): void {
     $_user = $this->createUser();
     $_shared = $this->shared;
 });
+
+// A dataset in a test file is consumed by that file's tests: its rows get the file's (here fallback) TestCase.
+dataset('own rows', ['row' => fn(): mixed => $this->defaultOnly]);

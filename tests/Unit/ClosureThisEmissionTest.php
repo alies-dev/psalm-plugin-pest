@@ -51,7 +51,9 @@ final class ClosureThisEmissionTest extends TestCase
         \sort($findings);
         $this->assertSame(
             [
+                'InvalidScope: Invalid reference to $this in a non-class context',
                 'UndefinedMethod: Method PHPUnit\Framework\TestCase::createUser does not exist',
+                'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$defaultOnly is not defined',
                 'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',
                 'UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$shared is not defined',
                 'UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',

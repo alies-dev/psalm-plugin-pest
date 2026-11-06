@@ -44,12 +44,11 @@ final class DatasetRows
     private static function values(Expr $array): array
     {
         $values = [];
-        // `list()` is accepted only so that Psalm 6 and 7 agree that an item may be null.
-        if ($array instanceof Expr\Array_ || $array instanceof Expr\List_) {
-            foreach ($array->items as $item) {
-                if ($item !== null) {
-                    $values[] = $item->value;
-                }
+        if ($array instanceof Expr\Array_) {
+            /** @var list<\PhpParser\Node\ArrayItem> $items */
+            $items = $array->items;
+            foreach ($items as $item) {
+                $values[] = $item->value;
             }
         }
 
