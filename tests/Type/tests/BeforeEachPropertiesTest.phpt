@@ -144,6 +144,16 @@ namespace {
         /** @psalm-check-type-exact $_parser = PestBeforeEachFixture\Parser|null */
         $_guarded = $this->parser?->parse('x');
         /** @psalm-check-type-exact $_guarded = null|string */
+        // An `isset()` on the left of `&&` is reconciled without a source, and is no more redundant than alone (#116).
+        if (isset($this->count) && rand(0, 1) === 1) {
+            $_set = true;
+        }
+        if (isset($this->late) || rand(0, 1) === 1) {
+            $_set = true;
+        }
+        if (isset($this->commands) && isset($this->bag) && rand(0, 1) === 1) {
+            $_set = true;
+        }
         if ($this->parser !== null && isset($this->count)) {
             $_set = true;
         }
