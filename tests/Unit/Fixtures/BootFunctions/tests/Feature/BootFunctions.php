@@ -27,6 +27,14 @@ test('calls expectations registered in the boot files', function (): void {
 
     expect(1.0)->toBePrice();
     expect(1.0)->toBeNowhere();
+
+    expect([1])->toBeCounted();
+    expect('a')->toBeLabelled();
+    expect(1.0)->toBeOverridden(1.0);
+});
+
+expect()->extend('toBeOverridden', function (string $label): void {
+    $this->toBe($label);
 });
 
 test('still reports a function nobody declares', function (): void {

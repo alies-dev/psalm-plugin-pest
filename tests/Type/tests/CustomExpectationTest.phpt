@@ -38,6 +38,9 @@ namespace PestCustomExpectationFixture {
         expect(1.0)->toBePrice();
         expect(1.0)->toBePrice('x');
         expect(1.0)->not->toBePrice();
+        expect($floats)->each->toBePrice();
+        expect($cart)->total->toBePrice();
+        expect(1)->toBeArrow('x');
 
         // A name nobody registered is still reported.
         expect(19.99)->toBeCost(1.0);
@@ -46,6 +49,7 @@ namespace PestCustomExpectationFixture {
 
         // Pest's table is case sensitive, and `Other\expect()` is not Pest's.
         expect(1.0)->tobeprice(1.0);
+        expect(1.0)->not->tobeprice(1.0);
         expect(1.0)->toBeOther();
 
         // `extend()` takes its arguments by name too.
@@ -79,6 +83,11 @@ namespace {
 
     expect()->extend('toBeUntyped', fn() => $this->toBeInt());
 
+    expect()->extend('toBeArrow', fn(int $expected) => $this->toBe($expected));
+
+    // No call can spell a numeric name; it is skipped, not a crash.
+    expect()->extend('123', function (): void {});
+
     expect()->extend('toBeArchy', function (): \Pest\Arch\Contracts\ArchExpectation {
         return expect('x')->toBeClass();
     });
@@ -88,9 +97,13 @@ namespace {
 TooFewArguments on line %d: Too few arguments for Pest\Expectation::tobeprice - expecting expected to be passed
 InvalidScalarArgument on line %d: Argument 1 of Pest\Expectation::tobeprice expects float, but 'x' provided
 TooFewArguments on line %d: Too few arguments for Pest\Expectations\OppositeExpectation::tobeprice - expecting expected to be passed
+TooFewArguments on line %d: Too few arguments for Pest\Expectations\EachExpectation::tobeprice - expecting expected to be passed
+TooFewArguments on line %d: Too few arguments for Pest\Expectations\HigherOrderExpectation::tobeprice - expecting expected to be passed
+InvalidScalarArgument on line %d: Argument 1 of Pest\Expectation::tobearrow expects int, but 'x' provided
 UndefinedMagicMethod on line %d: Magic method float(19.99)::tobecost does not exist
 UndefinedMagicMethod on line %d: Magic method Pest\Expectations\OppositeExpectation::tobecost does not exist
 UndefinedMagicMethod on line %d: Magic method Pest\Expectations\EachExpectation::tobecost does not exist
 UndefinedMagicMethod on line %d: Magic method float(1)::tobeprice does not exist
+UndefinedMagicMethod on line %d: Magic method Pest\Expectations\OppositeExpectation::tobeprice does not exist
 UndefinedMagicMethod on line %d: Magic method float(1)::tobeother does not exist
 TooFewArguments on line %d: Too few arguments for Pest\Expectation::tobenamed - expecting label to be passed
