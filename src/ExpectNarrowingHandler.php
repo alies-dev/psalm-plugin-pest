@@ -27,6 +27,7 @@ use Psalm\Type;
 use Psalm\Type\Atomic;
 use Psalm\Type\Atomic\TLiteralClassString;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Reconciler;
 use Psalm\Type\Union;
 
@@ -245,7 +246,8 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
     /**
      * Without a code location the reconciler does not flag an assertion that cannot hold: it answers the asserted
      * type itself, which a possible assertion never does (its answer is always a part of the old type). A float
-     * is not an int here: Pest's matchers are strict.
+     * is not an int here: Pest's matchers are strict. A template parameter stands for whatever its bound allows,
+     * so the answer is checked against the bounds: `T` (bound `mixed`) can be any class, `T of Foo` only a Foo.
      *
      * The reconciler answers a plain `Foo` for `Foo&static` (a `static`/`$this` return), and a plain class is
      * never contained by its `static` form; `static` only tells which subclass, so it is dropped from the old type.
@@ -255,7 +257,22 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
     private static function impossible(?Union $narrowed, Union $old, Codebase $codebase): bool
     {
         return !$narrowed instanceof \Psalm\Type\Union || $narrowed->isNever() || $narrowed->failed_reconciliation
-            || !$codebase->isTypeContainedByType($narrowed, self::withoutStatic($old), false, false, false, false);
+            || !$codebase->isTypeContainedByType($narrowed, self::withoutStatic(self::bounds($old, $codebase)), false, false, false, false);
+    }
+
+    /** `$type` with each template parameter replaced by its bound (itself resolved). */
+    private static function bounds(Union $type, Codebase $codebase): Union
+    {
+        if (!$type->hasTemplate()) {
+            return $type;
+        }
+
+        $parts = [];
+        foreach ($type->getAtomicTypes() as $atomic) {
+            $parts[] = $atomic instanceof TTemplateParam ? self::bounds($atomic->as, $codebase) : new Union([$atomic]);
+        }
+
+        return Type::combineUnionTypeArray($parts, $codebase);
     }
 
     private static function withoutStatic(Union $type): Union
