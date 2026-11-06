@@ -26,6 +26,18 @@ namespace PestBeforeEachFixture {
         }
     }
 
+    final class Foo
+    {
+        public function ok(): bool
+        {
+            return true;
+        }
+    }
+
+    final class Bar
+    {
+    }
+
     abstract class TestCase extends \PHPUnit\Framework\TestCase
     {
         protected string $token = '';
@@ -208,6 +220,74 @@ namespace {
         $_foreign = $this->foreign;
     });
 
+    // A write through an element (`$this->name[...] = ...`, `$this->name[] = ...`) or `??=` declares the
+    // property as a whole assignment does (#78).
+    beforeEach(function (): void {
+        $this->media['a']['b'] = 'x';
+        $this->list[] = 1;
+        $this->counter ??= 0;
+        $this->plain = 5;
+    });
+
+    test('reads properties written through elements or coalesced', function (): void {
+        $_media = $this->media;
+        /** @psalm-check-type-exact $_media = array<array-key, array<array-key, string>> */
+        $_list = $this->list;
+        /** @psalm-check-type-exact $_list = array<array-key, int> */
+        $_counter = $this->counter;
+        /** @psalm-check-type-exact $_counter = int */
+        $_plain = $this->plain;
+        /** @psalm-check-type-exact $_plain = int */
+        $this->list[] = 2;
+        $this->counter = 3;
+    });
+
+    // An element write of a property that is also assigned as a whole adds nothing to what the property
+    // holds: its shape, a string and an ArrayAccess object stay as they are (#78).
+    beforeEach(function (): void {
+        $this->shape = ['known' => 1];
+        $this->shape['added'] = 2;
+        $this->person = ['name' => 'Ada'];
+        $this->person['age'] = 1;
+        $this->word = 'abc';
+        $this->word[0] = 'x';
+        /** @var \ArrayObject<string, int> $objects */
+        $objects = new \ArrayObject();
+        $this->objects = $objects;
+        $this->objects['k'] = 1;
+    });
+
+    test('keeps what the whole assignment holds', function (): void {
+        $this->shape['typo'];
+        $_known = $this->shape['known'];
+        $_length = \strlen($this->person['name']);
+        $_word = $this->word;
+        /** @psalm-check-type-exact $_word = string */
+        $_count = $this->objects->count();
+    });
+
+    // `??=` on a property Psalm knows is set never assigns the operand, so it does not widen the property.
+    beforeEach(function (): void {
+        $this->primary = new PestBeforeEachFixture\Foo();
+        $this->primary ??= new PestBeforeEachFixture\Bar();
+    });
+
+    test('keeps the type of a property that is already set', function (): void {
+        $_ok = $this->primary->ok();
+    });
+
+    // A property only written through its elements may still be unset when a hook guards the write.
+    beforeEach(function (): void {
+        if (!isset($this->headers)) {
+            $this->headers['Accept'] = 'application/json';
+        }
+    });
+
+    test('reads a property whose element write is guarded', function (): void {
+        $_headers = $this->headers;
+        /** @psalm-check-type-exact $_headers = array<array-key, string> */
+    });
+
     // Fixtures are instance properties: a static access to one stays undefined, and never crashes. The
     // name is then not a fixture of this file at all, so the beforeEach() assignment reports too.
     beforeEach(function (): void {
@@ -232,6 +312,9 @@ UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\T
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$assigned is not defined
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$unrelated is not defined
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$foreign is not defined
+InvalidArrayOffset on line %d: Cannot access value on variable $this->shape using offset value of 'typo', expecting 'known' or 'added'
+RedundantCondition on line %d: Type PestBeforeEachFixture\Foo for $this->primary is always isset
+TypeDoesNotContainType on line %d: Cannot resolve types for $this->primary with type PestBeforeEachFixture\Foo and !isset assertion
 UndefinedThisPropertyAssignment on line %d: Instance property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined
 UndefinedPropertyFetch on line %d: Static property PestBeforeEachFixture\TestCase::$fixture is not defined

@@ -170,6 +170,59 @@ final class UsesParserTest extends TestCase
     }
 
     #[Test]
+    public function before_each_hooks_declare_properties_written_through_elements_or_coalesced(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase'],
+                'targets' => [$this->root . '/tests'],
+                'properties' => [
+                    'media' => ['array<array-key, array<array-key, string>>'],
+                    'list' => ['array<array-key, int>'],
+                    'counter' => ['int'],
+                    'cache' => ['array<array-key, int>'],
+                    'nested' => ['array<array-key, int>'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                pest()->extend(Tests\TestCase::class)->beforeEach(function () {
+                    $this->media['a']['b'] = 'x';
+                    $this->list[] = 1;
+                    $this->counter ??= 0;
+                    $this->cache['k'] ??= 1;
+                    (function () { $this->nested[] = 1; })();
+                    $static = static function () { $this->ignored ??= 1; };
+                });
+                PHP),
+        );
+    }
+
+    #[Test]
+    public function before_each_element_writes_add_nothing_to_a_property_assigned_as_a_whole(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase'],
+                'targets' => [$this->root . '/tests'],
+                'properties' => [
+                    'bag' => ['ArrayObject'],
+                    'only' => ['array<array-key, string>'],
+                    'total' => ['int'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                pest()->extend(Tests\TestCase::class)->beforeEach(function () {
+                    $this->bag = new ArrayObject();
+                    $this->bag[] = 1;
+                    $this->only['k'] = 'v';
+                    $this->total['x'] = 1;
+                    $this->total = 0;
+                });
+                PHP),
+        );
+    }
+
+    #[Test]
     public function comments_between_name_and_arguments_still_parse(): void
     {
         $this->assertSame(
