@@ -60,7 +60,8 @@ use Psalm\Type\Union;
  * `is_string()` would. It gets no code location (tests routinely assert what the type already says) and is marked
  * as coming from a docblock, so a later contradicting `if` is a DocblockTypeContradiction. An assertion that
  * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime ({@see ExpectationHandler}
- * reports it). Only plain variables are narrowed.
+ * reports it). Only plain variables are narrowed, and not those a closure of the enclosing test binds by
+ * reference ({@see ByRefCaptures}): they change behind the narrowing's back.
  */
 final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
 {
@@ -94,6 +95,7 @@ final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
 
         $context = $event->getContext();
         $assertions = \array_intersect_key(self::collect($call, $source, $event->getCodebase()), $context->vars_in_scope);
+        $assertions = \array_filter($assertions, static fn(string $id): bool => !ByRefCaptures::isCaptured($id, $source), \ARRAY_FILTER_USE_KEY);
         if ($assertions !== []) {
             [$context->vars_in_scope, $context->references_in_scope] = self::reconcile(
                 $assertions,
