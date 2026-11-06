@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200"><g transform="translate(-36 -12)"><mask id="mll"><rect x="0" y="0" width="240" height="240" fill="#fff"/><rect x="78" y="60" width="84" height="18" fill="#000"/></mask>
+<rect x="62" y="74" width="116" height="132" rx="24" fill="#fb70a9" fill-opacity=".15" stroke="#18181b" stroke-width="4" mask="url(#mll)"/>
+<rect x="76" y="62" width="88" height="14" fill="#fb70a9" fill-opacity=".15" stroke="#18181b" stroke-width="4"/>
+<rect x="68" y="44" width="104" height="20" rx="4" fill="#e24ca6"/><g stroke="#18181b" stroke-width="2" stroke-linecap="round" opacity=".55">
+<path d="M74 176 v18 M79 176 v18 M84 176 v18 M89 176 v18 M71 190 l22 -10"/></g><g transform="translate(124 140) scale(2.0)">
+<g stroke="#18181b" stroke-width="2.5" stroke-linecap="round" fill="none">
+<path d="M-10 -8 l-9 -4 M-11 0 l-10 2 M-9 8 l-8 6 M10 -8 l9 -4 M11 0 l10 2 M9 8 l8 6 M-3 -21 l-4 -8 M3 -21 l4 -8"/></g>
+<circle cy="-17" r="6" fill="#18181b"/><ellipse rx="11" ry="14" fill="#18181b"/>
+<circle cx="-2.5" cy="-18" r="2.2" fill="#fff"/><circle cx="2.5" cy="-18" r="2.2" fill="#fff"/>
+<path d="M-5 -22 l4 2 M5 -22 l-4 2" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></g><path d="M162 24 h50 a6 6 0 0 1 6 6 v20 a6 6 0 0 1 -6 6 h-30 l-10 10 v-10 h-10 a6 6 0 0 1 -6 -6 v-20 a6 6 0 0 1 6 -6 z" fill="#e24ca6"/>
+<text x="187" y="44" text-anchor="middle" font-family="Menlo, 'SF Mono', Consolas, monospace" font-size="11" font-weight="700" fill="#fff">mixed!!</text></g>
+<text x="206" y="104" font-family="Menlo, 'SF Mono', Consolas, monospace" font-size="44" font-weight="700" fill="#18181b">psalm-plugin-<tspan fill="#e24ca6">pest</tspan></text>
+<text x="208" y="140" font-family="Menlo, 'SF Mono', Consolas, monospace" font-size="17" fill="#52525b">Makes Psalm understand Pest tests.</text></svg>

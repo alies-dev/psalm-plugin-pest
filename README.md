@@ -1,33 +1,89 @@
-# Psalm plugin for Pest
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="art/lockup-dark.svg">
+    <img src="art/lockup-light.svg" alt="psalm-plugin-pest: makes Psalm understand Pest tests" width="560">
+  </picture>
+</p>
 
-Makes [Psalm](https://psalm.dev) understand [Pest](https://pestphp.com) tests.
+<p align="center">
+  <strong>Your Pest tests, fully typed. Bugs contained.</strong>
+</p>
+
+<p align="center">
+  <a href="https://packagist.org/packages/alies-dev/psalm-plugin-pest"><img src="https://img.shields.io/packagist/v/alies-dev/psalm-plugin-pest" alt="Latest version"></a>
+  <a href="https://packagist.org/packages/alies-dev/psalm-plugin-pest"><img src="https://img.shields.io/packagist/dt/alies-dev/psalm-plugin-pest" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/packagist/l/alies-dev/psalm-plugin-pest" alt="License"></a>
+</p>
+
+Pest closures look like magic to [Psalm](https://psalm.dev). It thinks `$this` is a `TestCall`, so every `$this->anything` quietly resolves to `TestCall` again. Typos pass, types are wrong, and the bugs in your tests stay invisible.
+
+This plugin teaches Psalm how [Pest](https://pestphp.com) really works. Keep your tests in the analysis, get real types and catch broken tests before you run them.
+
+## Install
 
 ```bash
 composer require --dev alies-dev/psalm-plugin-pest
 vendor/bin/psalm-plugin enable alies-dev/psalm-plugin-pest
 ```
 
-Requires PHP 8.3+, Psalm 6.19+ or 7 (including `dev-master`) and Pest 4 or 5. Your `tests/` directory must be in `<projectFiles>`.
+That's it. Make sure `tests/` is in `<projectFiles>` of your `psalm.xml`.
 
-## What it does
+Requires PHP 8.3+, Psalm 6.19+ or 7, Pest 4 or 5.
 
-- Types `$this` in test, hook and dataset closures as the TestCase from `uses()` / `pest()->extend()`, including traits from `uses()` / `->use()`.
-- Declares `$this->x` assigned in `beforeEach()` (in the file or in `tests/Pest.php` hooks) for the tests it applies to.
-- Types `test()` with no arguments as the bound TestCase, and resolves higher-order tests like `it('x')->actingAsAdmin()`.
-- Types expectation chains: `->not`, `->each`, higher-order members (`expect($user)->name->toBe('Ada')`), and `expect($v)` as `Expectation<T>`.
-- Narrows variables after type assertions: `expect($user)->not->toBeNull()` makes `$user` non-null.
-- Stops reporting `InternalMethod` on Pest's public API.
-- Reports `PestHookInDescribe` for `beforeAll()` / `afterAll()` inside `describe()`, which Pest rejects when loading the file.
-- Reports `PestStaticTestClosure` for a `static` closure passed to `test()`, `it()`, `beforeEach()` or `afterEach()`, since Pest cannot bind `$this` to it.
-- Reports `PestDuplicateTestDescription` for a second test with the same description in a file (scoped by `describe()`), which Pest rejects when loading the file.
-- Reports `PestImpossibleExpectation` when a type matcher such as `expect(42)->toBeString()` can never pass for the value's type.
+## Before and after
+
+```php
+uses(Tests\TestCase::class);
+
+beforeEach(function () {
+    $this->cart = new Cart();
+});
+
+it('totals the cart', function () {
+    $this->actingAs(admin());       // before: TestCall::__call(), unchecked
+                                    // after:  Tests\TestCase::actingAs()
+
+    $total = $this->cart->total();  // before: TestCall, so $total is TestCall
+                                    // after:  Cart from beforeEach(), int
+
+    expect($total)->toBeString();   // after:  PestImpossibleExpectation,
+});                                 //         total() returns int
+```
+
+## Types it understands
+
+| Pest code | Psalm sees |
+|---|---|
+| `$this` in tests, hooks and datasets | Your TestCase from `uses()` / `pest()->extend()`, plus its traits |
+| `$this->user` set in `beforeEach()` | A declared property with its type, also from `tests/Pest.php` |
+| `test()` with no arguments | The bound TestCase |
+| `it('x')->actingAsAdmin()` | A resolved higher order call |
+| `expect($user)->name->toBe('Ada')` | `Expectation<T>` through `->not`, `->each` and member access |
+| `expect($user)->not->toBeNull()` | `$user` narrowed to non-null afterwards |
+| `pest()->printer()`, arch chains | Public API, no `InternalMethod` noise |
+
+## Bugs it catches
+
+Each one is a test that is broken or will never run. Pest finds out at runtime, the plugin finds out in your editor.
+
+| Issue | Example |
+|---|---|
+| `PestImpossibleExpectation` | `expect(42)->toBeString()` can never pass |
+| `PestDuplicateTestDescription` | Two tests named `'works'` in the same file or `describe()` |
+| `PestHookInDescribe` | `beforeAll()` / `afterAll()` inside `describe()` |
+| `PestStaticTestClosure` | `test('x', static fn () => ...)`, where Pest cannot bind `$this` |
+
+Suppress any of them like a regular Psalm issue.
 
 ## Known limitations
 
-- `tests/Pest.php` is looked up next to your Psalm config, and a test file outside `tests/` keeps Pest's own types.
-- Files are parsed, never executed: a boot file with dynamic `uses()` calls disables TestCase resolution for the suite. Config-only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
-- Custom expectations from `expect()->extend()` are still reported.
-- Narrowing works on plain variables only, not `$this->prop`.
+* `tests/Pest.php` is looked up next to your Psalm config. A test file outside `tests/` keeps Pest's own types.
+* Files are parsed, never executed. A boot file with dynamic `uses()` calls disables TestCase resolution for the suite.
+* Config only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
+* Custom expectations from `expect()->extend()` are still reported.
+* Narrowing works on plain variables, not on `$this->prop`.
+
+Found a false positive? [Open an issue](https://github.com/alies-dev/psalm-plugin-pest/issues) with a snippet.
 
 ## License
 
