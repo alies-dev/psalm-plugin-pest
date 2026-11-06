@@ -33,6 +33,9 @@ final class PestApi
     /** What `uses()` / `pest()->extend()` return; its `beforeEach()` / `afterEach()` hook closures run on the TestCase. */
     public const USES_CALL = 'Pest\PendingCalls\UsesCall';
 
+    /** What `pest()` returns; its `group()` builds a `UsesCall` for the file. */
+    public const CONFIGURATION = 'Pest\Configuration';
+
     /** What `beforeEach()` returns; its `after()` closure is replayed on each test's `TestCall` and runs on the TestCase. */
     public const BEFORE_EACH_CALL = 'Pest\PendingCalls\BeforeEachCall';
 
