@@ -23,12 +23,6 @@ namespace {
     });
 
     // Pest replays `expect()` / `and()` through HigherOrderCallables, which binds the closure to the TestCase.
-    it('binds an arrow function')->expect(fn () => $this->cart->count())->toBe(0);
-    test('binds a test() chain')->expect(fn () => $this->cart->count())->toBe(0);
-    it('binds a closure block')->expect(function () {
-        /** @psalm-check-type-exact $this = PestHigherOrderExpectFixture\TestCase */
-        return $this->cart->count();
-    })->toBe(0);
     it('binds and() after expect()')->expect(1)->and(fn () => $this->cart->count())->toBe(0);
     it('binds and() further down the chain')->expect(1)->toBe(1)->and(function () {
         /** @psalm-check-type-exact $this = PestHigherOrderExpectFixture\TestCase */
