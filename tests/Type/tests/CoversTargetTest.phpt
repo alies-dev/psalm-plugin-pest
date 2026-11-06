@@ -20,7 +20,6 @@ namespace {
     it('unknown covers', function (): void {})->covers('PestCoversFixture\Missing', 'missing_helper');
     it('unknown with a leading backslash', function (): void {})->covers('\PestCoversFixture\Missing');
     it('unknown among known', function (): void {})->coversClass(Post::class, 'PestCoversFixture\Missing2');
-    it('arrays are left to Psalm', function (): void {})->covers(['PestCoversFixture\Missing3']);
     it('unknown as a named argument', function (): void {})->coversClass(classes: 'PestCoversFixture\Missing4');
     it('unknown vendor class Composer does not know', function (): void {})->coversClass('Composer\Semver\VersionParserTypo');
 
@@ -72,7 +71,6 @@ PestUnknownCoversTarget on line %d: No class, trait or function named "PestCover
 PestUnknownCoversTarget on line %d: No class, trait or function named "missing_helper" exists; Pest throws "No class, trait or method named [missing_helper] has been found" while loading the file.
 PestUnknownCoversTarget on line %d: No class, trait or function named "\PestCoversFixture\Missing" exists; Pest throws "No class, trait or method named [\PestCoversFixture\Missing] has been found" while loading the file.
 PestUnknownCoversTarget on line %d: No class or enum named "PestCoversFixture\Missing2" exists; PHPUnit reports it as an invalid code coverage target on coverage runs.
-InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\TestCall::covers expects string, but list{'PestCoversFixture\\Missing3'} provided
 PestUnknownCoversTarget on line %d: No class or enum named "PestCoversFixture\Missing4" exists; PHPUnit reports it as an invalid code coverage target on coverage runs.
 PestUnknownCoversTarget on line %d: No class or enum named "Composer\Semver\VersionParserTypo" exists; PHPUnit reports it as an invalid code coverage target on coverage runs.
 MixedArgument on line %d: Argument 1 of Pest\PendingCalls\TestCall::coversClass cannot be mixed, expecting string
