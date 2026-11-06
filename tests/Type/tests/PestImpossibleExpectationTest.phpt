@@ -20,6 +20,31 @@ namespace PestImpossibleExpectationFixture {
         }
     }
 
+    class Basket
+    {
+        public function fluent(): static
+        {
+            return $this;
+        }
+
+        public function maybe(): ?static
+        {
+            return $this;
+        }
+    }
+
+    /** @template T */
+    class Bag
+    {
+        /** @param list<T> $items */
+        public function __construct(public array $items) {}
+
+        public function same(): static
+        {
+            return $this;
+        }
+    }
+
     final class User
     {
         public string $name = 'Ada';
@@ -130,6 +155,18 @@ namespace PestImpossibleExpectationFixture {
         // A real value still reports.
         expect(Cart::total())->toBeString();
     }
+
+    /** A `static` return (`Foo&static`) is a `Foo`: the instance check passes. */
+    function staticValues(Basket $basket): void
+    {
+        expect($basket->fluent())->toBeInstanceOf(Basket::class);
+        expect($basket->maybe())->toBeInstanceOf(Basket::class);
+        expect((new Bag([1]))->same())->toBeInstanceOf(Bag::class);
+
+        // Still a different class than the one asserted. (Psalm 6 prints the value as `Basket&static`, Psalm 7 may drop the suffix.)
+        expect($basket->fluent())->toBeInstanceOf(Square::class);
+        expect($basket->fluent())->toBeNull();
+    }
 }
 ?>
 --EXPECTF--
@@ -164,3 +201,5 @@ MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
 UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
 MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.

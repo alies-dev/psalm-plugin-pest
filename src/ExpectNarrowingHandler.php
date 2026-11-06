@@ -247,12 +247,25 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
      * type itself, which a possible assertion never does (its answer is always a part of the old type). A float
      * is not an int here: Pest's matchers are strict.
      *
+     * The reconciler answers a plain `Foo` for `Foo&static` (a `static`/`$this` return), and a plain class is
+     * never contained by its `static` form; `static` only tells which subclass, so it is dropped from the old type.
+     *
      * @psalm-assert-if-false Union $narrowed
      */
     private static function impossible(?Union $narrowed, Union $old, Codebase $codebase): bool
     {
         return !$narrowed instanceof \Psalm\Type\Union || $narrowed->isNever() || $narrowed->failed_reconciliation
-            || !$codebase->isTypeContainedByType($narrowed, $old, false, false, false, false);
+            || !$codebase->isTypeContainedByType($narrowed, self::withoutStatic($old), false, false, false, false);
+    }
+
+    private static function withoutStatic(Union $type): Union
+    {
+        $atomics = [];
+        foreach ($type->getAtomicTypes() as $atomic) {
+            $atomics[] = $atomic instanceof TNamedObject && $atomic->is_static ? $atomic->setIsStatic(false) : $atomic;
+        }
+
+        return new Union($atomics);
     }
 
     /**
