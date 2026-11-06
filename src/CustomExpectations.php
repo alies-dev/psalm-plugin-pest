@@ -75,9 +75,13 @@ final class CustomExpectations
             }
 
             foreach ((new NodeFinder())->findInstanceOf($statements, MethodCall::class) as $call) {
-                $args = $call->isFirstClassCallable() ? [] : $call->getArgs();
-                $name = ($args[0] ?? null)?->value;
-                $closure = ($args[1] ?? null)?->value;
+                $given = [];
+                foreach ($call->isFirstClassCallable() ? [] : $call->getArgs() as $position => $arg) {
+                    $given[$arg->name->name ?? ($position === 0 ? 'name' : 'extend')] = $arg->value;
+                }
+
+                $name = $given['name'] ?? null;
+                $closure = $given['extend'] ?? null;
                 if ($call->name instanceof Identifier && \strtolower($call->name->name) === 'extend'
                     && $call->var instanceof FuncCall && $call->var->name instanceof Name && \in_array(\strtolower($call->var->name->toString()), ['expect', 'pest\\expect'], true)
                     && $name instanceof String_

@@ -48,6 +48,9 @@ namespace PestCustomExpectationFixture {
         expect(1.0)->tobeprice(1.0);
         expect(1.0)->toBeOther();
 
+        // `extend()` takes its arguments by name too.
+        expect(1.0)->toBeNamed();
+
         // A closure held in a variable has no signature to check against.
         expect(1.0)->toBeVariable(1, 'two');
     }
@@ -70,6 +73,10 @@ namespace {
     $held = function (): void {};
     expect()->extend('toBeVariable', $held);
 
+    expect()->extend(extend: function (string $label): void {
+        $this->toBe($label);
+    }, name: 'toBeNamed');
+
     expect()->extend('toBeUntyped', fn() => $this->toBeInt());
 
     expect()->extend('toBeArchy', function (): \Pest\Arch\Contracts\ArchExpectation {
@@ -86,3 +93,4 @@ UndefinedMagicMethod on line %d: Magic method Pest\Expectations\OppositeExpectat
 UndefinedMagicMethod on line %d: Magic method Pest\Expectations\EachExpectation::tobecost does not exist
 UndefinedMagicMethod on line %d: Magic method float(1)::tobeprice does not exist
 UndefinedMagicMethod on line %d: Magic method float(1)::tobeother does not exist
+TooFewArguments on line %d: Too few arguments for Pest\Expectation::tobenamed - expecting label to be passed
