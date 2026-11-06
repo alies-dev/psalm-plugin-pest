@@ -29,7 +29,7 @@ final class InvalidGroupNameHandler implements AfterExpressionAnalysisInterface
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
         $call = $event->getExpr();
-        if (!$call instanceof MethodCall || !$call->name instanceof Identifier || \strtolower($call->name->name) !== 'group') {
+        if (!$call instanceof MethodCall || !$call->name instanceof Identifier || \strtolower($call->name->name) !== 'group' || $call->isFirstClassCallable()) {
             return null;
         }
 
@@ -44,7 +44,7 @@ final class InvalidGroupNameHandler implements AfterExpressionAnalysisInterface
         }
 
         foreach ($call->getArgs() as $arg) {
-            if ($arg->value instanceof String_ && \trim($arg->value->value) === '') {
+            if (!$arg->unpack && $arg->value instanceof String_ && \trim($arg->value->value) === '') {
                 self::report($source, new CodeLocation($source, $arg->value), 'A group name must not be empty or whitespace only.');
             }
         }

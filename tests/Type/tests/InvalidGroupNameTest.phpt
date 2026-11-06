@@ -21,6 +21,8 @@ it('constant', function (): void {})->group(PHP_EOL);
 it('spread', function (): void {})->group(...['']);
 uses(GroupFixtureTestCase::class)->group('feature');
 pest()->group('feature');
+$_callable = pest()->group(...);
+$_unpacked = pest()->group(...'');
 describe('block', function (): void {})->group('feature');
 
 class NotPest { public function group(string ...$_names): void {} }
@@ -37,3 +39,4 @@ PestInvalidGroupName on line %d: A group name must not be empty or whitespace on
 PestInvalidGroupName on line %d: A group name must not be empty or whitespace only.
 PestInvalidGroupName on line %d: A group name must not be empty or whitespace only.
 PestInvalidGroupName on line %d: A group name must not be empty or whitespace only.
+InvalidArgument on line %d: Tried to unpack non-iterable ''
