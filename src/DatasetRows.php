@@ -44,9 +44,12 @@ final class DatasetRows
     private static function values(Expr $array): array
     {
         $values = [];
-        if ($array instanceof Expr\Array_) {
+        // `list()` is accepted only so that Psalm 6 and 7 agree that an item may be null.
+        if ($array instanceof Expr\Array_ || $array instanceof Expr\List_) {
             foreach ($array->items as $item) {
-                $values[] = $item->value;
+                if ($item !== null) {
+                    $values[] = $item->value;
+                }
             }
         }
 
