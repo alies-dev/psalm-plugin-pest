@@ -13,6 +13,7 @@ use Psalm\Internal\Codebase\InternalCallMapHandler;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterMethodCallAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
+use Psalm\Storage\ClassLikeStorage;
 
 /**
  * Reports a string-literal target of `TestCall::covers()` / `coversClass()` / `coversTrait()` /
@@ -114,12 +115,12 @@ final class CoversTargetHandler implements AfterMethodCallAnalysisInterface
     private static function classLikeKind(Codebase $codebase, string $name): ?string
     {
         if ($codebase->classOrInterfaceOrEnumExists($name) || $codebase->classlikes->traitExists($name)) {
-            $storage = $codebase->classlike_storage_provider->has(\strtolower($name))
+            $storage = $codebase->classlike_storage_provider->has($name)
                 ? $codebase->classlike_storage_provider->get($name)
                 : null;
 
             return match (true) {
-                !$storage instanceof \Psalm\Storage\ClassLikeStorage => 'classlike',
+                !$storage instanceof ClassLikeStorage => 'classlike',
                 $storage->is_interface => 'interface',
                 $storage->is_trait => 'trait',
                 $storage->is_enum => 'enum',
