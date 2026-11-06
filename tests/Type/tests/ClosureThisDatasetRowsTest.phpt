@@ -56,15 +56,14 @@ namespace {
         }]);
     })->with(['row' => fn (): string => $this->token, [fn (): string => test()->user, 1]]);
 
-    // A lazy dataset: Pest calls the closure itself unbound, then binds the rows it returns or yields.
+    // A lazy dataset: Pest calls the closure itself unbound, then binds the rows it returns or yields
+    // (a generator's return value is dropped, so no closure in it is a row).
     it('binds rows of a lazy dataset', function (string $_name): void {})
         ->with(fn (): array => [fn (): string => $this->token, 'k' => [fn (): string => test()->user]])
         ->with(function (): \Generator {
             yield fn (): string => $this->token;
             yield 'k' => [fn (): string => test()->helper(), 'x'];
             yield from [fn (): string => $this->user];
-
-            return [fn (): string => $this->token];
         });
 
     describe('in a block with a lazy dataset', function (): void {
@@ -104,5 +103,5 @@ namespace {
 }
 ?>
 --EXPECTF--
-InvalidScope on line %d: %s
-InvalidScope on line %d: %s
+InvalidScope on line 97: %s
+InvalidScope on line 101: %s

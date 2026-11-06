@@ -96,14 +96,16 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     {
         $functions = $codebase->functions;
         $testCall = BoundTestCase::storage($codebase, PestApi::TEST_CALL)?->location?->file_path;
-        if ($testCall === null
-            || !$functions->hasStubbedFunction('dataset')
-            || $functions->getStorage(null, 'dataset')->location?->file_path !== \dirname($testCall, 2) . \DIRECTORY_SEPARATOR . 'Functions.php'
-        ) {
+        if ($testCall === null || !$functions->hasStubbedFunction('dataset')) {
             return;
         }
 
-        $params = $functions->getStorage(null, 'dataset')->params;
+        $dataset = $functions->getStorage(null, 'dataset');
+        if ($dataset->location?->file_path !== \dirname($testCall, 2) . \DIRECTORY_SEPARATOR . 'Functions.php') {
+            return;
+        }
+
+        $params = $dataset->params;
         $functions->params_provider->registerClosure(
             'dataset',
             static function (FunctionParamsProviderEvent $event) use ($params): array {

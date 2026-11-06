@@ -22,8 +22,9 @@ use PhpParser\NodeVisitorAbstract;
  * The closures Pest binds to the running test in a dataset: a row, or a value of an array row
  * (`Testable::__resolveTestArguments()` binds every `Closure` argument it gets). A dataset is an
  * array literal (`->with([...])`, `dataset('x', [...])`) or a lazy closure, whose rows are the
- * arrays it returns and the values it yields at its own top level (Pest calls the closure itself
- * unbound, from its static data provider).
+ * values it yields at its own top level or, when it yields nothing, the arrays it returns (Pest
+ * calls the closure itself unbound, from its static data provider, and reads a generator with
+ * `iterator_to_array()`, which drops its return value).
  *
  * Pest leaves a closure unbound when the test parameter it fills is typed `Closure` or `callable`
  * (or `mixed` when it gets several arguments). That is not followed: every closure in a row
@@ -64,7 +65,12 @@ final class DatasetRows
 
         $visitor = new class extends NodeVisitorAbstract {
             /** @var list<Expr> */
-            public array $rows = [];
+            public array $returned = [];
+
+            /** @var list<Expr> */
+            public array $yielded = [];
+
+            public bool $generator = false;
 
             #[\Override]
             public function enterNode(Node $node): ?int
@@ -74,10 +80,18 @@ final class DatasetRows
                     return NodeVisitor::DONT_TRAVERSE_CHILDREN;
                 }
 
-                if (($node instanceof Return_ || $node instanceof YieldFrom) && $node->expr instanceof Array_) {
-                    \array_push($this->rows, ...DatasetRows::values($node->expr));
-                } elseif ($node instanceof Yield_ && $node->value instanceof Expr) {
-                    $this->rows[] = $node->value;
+                if ($node instanceof Return_ && $node->expr instanceof Array_) {
+                    \array_push($this->returned, ...DatasetRows::values($node->expr));
+                } elseif ($node instanceof YieldFrom) {
+                    $this->generator = true;
+                    if ($node->expr instanceof Array_) {
+                        \array_push($this->yielded, ...DatasetRows::values($node->expr));
+                    }
+                } elseif ($node instanceof Yield_) {
+                    $this->generator = true;
+                    if ($node->value instanceof Expr) {
+                        $this->yielded[] = $node->value;
+                    }
                 }
 
                 return null;
@@ -86,7 +100,8 @@ final class DatasetRows
         // An arrow function's statements are the `return` of its body.
         (new NodeTraverser($visitor))->traverse($dataset->getStmts());
 
-        return $visitor->rows;
+        // A generator's return value is not a row.
+        return $visitor->generator ? $visitor->yielded : $visitor->returned;
     }
 
     /**
