@@ -163,7 +163,7 @@ namespace PestImpossibleExpectationFixture {
         expect($basket->maybe())->toBeInstanceOf(Basket::class);
         expect((new Bag([1]))->same())->toBeInstanceOf(Bag::class);
 
-        // Still a different class than the one asserted. (Psalm 6 prints the value as `Basket&static`, Psalm 7 may drop the suffix.)
+        // Still a different class than the one asserted.
         expect($basket->fluent())->toBeInstanceOf(Square::class);
         expect($basket->fluent())->toBeNull();
     }
@@ -234,7 +234,7 @@ MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
 UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
 MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
-PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.
-PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket%S; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket&static; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket&static; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for %s; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for %s; assert the type the value has or remove the assertion.

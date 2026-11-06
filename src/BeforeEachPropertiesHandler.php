@@ -418,9 +418,8 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     {
         $opened = Type::getNever();
         foreach ($param->getAtomicTypes() as $atomic) {
-            // Psalm 6 has the class but no way to resolve it: its variable stays as it was.
-            if ($atomic instanceof TTypeVariable && \method_exists($atomic, 'getResolvedType')) {
-                $resolved = !isset($unrolling[$atomic->name]) ? self::resolveTypeVariable($atomic, $codebase) : null;
+            if ($atomic instanceof TTypeVariable) {
+                $resolved = !isset($unrolling[$atomic->name]) ? $atomic->getResolvedType($codebase, false) : null;
                 $part = $resolved instanceof Union
                     ? self::openTemplateParam($resolved, $codebase, [...$unrolling, $atomic->name => true])
                     : Type::getMixed();
@@ -432,18 +431,5 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         }
 
         return $opened->isNever() ? Type::getMixed() : $opened;
-    }
-
-    /** What Psalm 7 inferred a type variable to be, `null` if nothing bound it. */
-    private static function resolveTypeVariable(TTypeVariable $variable, Codebase $codebase): ?Union
-    {
-        return \method_exists($variable, 'getResolvedType')
-            ? self::asUnion($variable->getResolvedType($codebase, false))
-            : null;
-    }
-
-    private static function asUnion(mixed $type): ?Union
-    {
-        return $type instanceof Union ? $type : null;
     }
 }
