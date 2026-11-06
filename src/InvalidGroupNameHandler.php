@@ -15,9 +15,10 @@ use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 /**
  * Reports `group()` on a test, `uses()`, `pest()`, `describe()` or `beforeEach()` with no name, or with
  * a name whose type is a single empty or whitespace-only literal string. Pest turns each name into
- * PHPUnit's `Group` attribute, which declares a `non-empty-string` but does not check it at runtime, so
- * a blank name silently creates a group no `--group` filter can select. With no names the call adds no
- * group at all. Names typed as a plain `string` are never reported.
+ * PHPUnit's `Group` attribute, which declares a `non-empty-string` but does not check it at runtime. An
+ * empty name breaks that contract and cannot be selected, because PHPUnit rejects `--group ''`. A
+ * whitespace-only name is almost certainly a typo and can only be selected by quoting the whitespace.
+ * With no names the call adds no group at all. Names typed as a plain `string` are never reported.
  *
  * Keyed on the receiver's type rather than the method hook: `describe()->group()` and
  * `beforeEach()->group()` are magic calls, which Psalm does not report to the method hooks.
