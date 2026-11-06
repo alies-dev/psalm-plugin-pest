@@ -27,11 +27,17 @@ final class PestApi
     /** `->someProperty` / `->someMethod()` on an expectation of an object or array. */
     public const HIGHER_ORDER_EXPECTATION = 'Pest\Expectations\HigherOrderExpectation';
 
+    /** The one return type that makes `Pest\Expectation::__call()` hand back an `expect()->extend()` closure's result. */
+    public const ARCH_EXPECTATION = 'Pest\Arch\Contracts\ArchExpectation';
+
     /** What `@param-closure-this` names on `test()` / `it()` / `beforeEach()` / `afterEach()`. */
     public const TEST_CALL = 'Pest\PendingCalls\TestCall';
 
     /** What `uses()` / `pest()->extend()` return; its `beforeEach()` / `afterEach()` hook closures run on the TestCase. */
     public const USES_CALL = 'Pest\PendingCalls\UsesCall';
+
+    /** What `pest()` returns; its `group()` builds a `UsesCall` for the file. */
+    public const CONFIGURATION = 'Pest\Configuration';
 
     /** What `beforeEach()` returns; its `after()` closure is replayed on each test's `TestCall` and runs on the TestCase. */
     public const BEFORE_EACH_CALL = 'Pest\PendingCalls\BeforeEachCall';
