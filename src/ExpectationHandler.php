@@ -5,9 +5,23 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use AliesDev\PsalmPluginPest\Issue\PestImpossibleExpectation;
+use PhpParser\Node;
+use PhpParser\Node\Arg;
+use PhpParser\Node\Expr\ArrowFunction;
+use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt;
+use PhpParser\Node\Stmt\Expression;
+use PhpParser\Node\Stmt\Function_;
+use PhpParser\Node\Stmt\Namespace_;
+use PhpParser\NodeFinder;
 use Psalm\Codebase;
 use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
@@ -15,8 +29,12 @@ use Psalm\Issue\UndefinedMagicMethod;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\MethodExistenceProviderEvent;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
 use Psalm\Plugin\EventHandler\MethodExistenceProviderInterface;
@@ -60,8 +78,17 @@ use Psalm\Type\Union;
  * Known limit: `->not` / `->each` read through a proxy resolve from the `Expectation` mixin (which wins over the proxy's
  * own pseudo properties), so the value type is not tracked there.
  */
-final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, MethodExistenceProviderInterface
+final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface, BeforeFileAnalysisInterface, MethodExistenceProviderInterface
 {
+    /** Attribute on the calls inside a test closure that is expected to fail. */
+    private const DELIBERATE_FAILURE = 'pest-deliberate-failure';
+
+    /** Attribute on the `beforeEach()` of a chain statement: the statements after it in the same block. */
+    private const FOLLOWING = 'pest-following-statements';
+
+    /** What PHPUnit throws for a failed assertion, and what `->fails()` makes a test expect. */
+    private const ASSERTION_FAILED = 'PHPUnit\Framework\AssertionFailedError';
+
     /** Each proxy and the class its `__call()` hands an assertion back as, on the proxy's own template arguments. */
     private const PROXY_RESULTS = [
         PestApi::OPPOSITE_EXPECTATION => PestApi::EXPECTATION,
@@ -146,6 +173,151 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         }
 
         $parameter->type = new Union([new TNamedObject(\Closure::class), new TString(), new TNamedObject(\Throwable::class)]);
+    }
+
+    /**
+     * A `beforeEach()` chain applies to the tests created after it in its block (the file, or the `describe()`
+     * closure it sits in), which the expression alone does not show: this hands each one the statements after it.
+     */
+    #[\Override]
+    public static function beforeAnalyzeFile(BeforeFileAnalysisEvent $event): void
+    {
+        $stmts = $event->getStmts();
+        $blocks = [$stmts];
+        $finder = new NodeFinder();
+        foreach ($finder->find($stmts, static fn(Node $node): bool => $node instanceof Namespace_ || $node instanceof Function_ || $node instanceof Closure) as $node) {
+            /** @var Namespace_|Function_|Closure $node */
+            $blocks[] = $node->stmts;
+        }
+
+        foreach ($blocks as $block) {
+            $block = \array_values($block);
+            foreach ($block as $index => $stmt) {
+                $root = $stmt instanceof Expression && $stmt->expr instanceof MethodCall ? self::chainRoot($stmt->expr) : null;
+                if ($root instanceof FuncCall && $root->name instanceof Name && \strtolower($root->name->getLast()) === 'beforeeach') {
+                    $root->setAttribute(self::FOLLOWING, \array_slice($block, $index + 1));
+                }
+            }
+        }
+    }
+
+    /**
+     * A test chain that contains `->fails()` expects its closure to fail, so the assertions inside it are not
+     * impossible by mistake. So does `->throws(AssertionFailedError::class)` (what `->fails()` calls) or a subclass
+     * such as `ExpectationFailedException`, and `->throwsIf()` / `->throwsUnless()` with one: their condition counts
+     * unless it is the literal that turns the expectation off, since a runtime condition may well hold. On
+     * `describe()` the step applies to every test in the block, and on `beforeEach()` to every test after it in its
+     * block: Pest replays it on each of them. Psalm analyzes the closure while it analyzes `it()`, before the chain's
+     * own call is seen from there; this runs first and marks the test closures' calls for {@see self::reportImpossible()}.
+     * The closures of hooks are not marked: a failing hook still fails the test.
+     */
+    #[\Override]
+    public static function beforeExpressionAnalysis(BeforeExpressionAnalysisEvent $event): ?bool
+    {
+        $call = $event->getExpr();
+        $source = $event->getStatementsSource();
+        if (!$call instanceof MethodCall || !$source instanceof StatementsAnalyzer || !self::expectsFailure($call, $event->getCodebase())) {
+            return null;
+        }
+
+        $root = self::chainRoot($call);
+        if (!$root instanceof FuncCall) {
+            return null;
+        }
+
+        if (self::calls($root, 'beforeeach', $source)) {
+            /** @var list<Stmt> $scope */
+            $scope = $root->getAttribute(self::FOLLOWING, []);
+        } elseif (self::calls($root, 'it', $source) || self::calls($root, 'test', $source) || self::calls($root, 'describe', $source)) {
+            $scope = [$root];
+        } else {
+            return null;
+        }
+
+        $finder = new NodeFinder();
+        foreach ($finder->findInstanceOf($scope, FuncCall::class) as $test) {
+            if (!self::calls($test, 'it', $source) && !self::calls($test, 'test', $source)) {
+                continue;
+            }
+
+            foreach ($test->args as $arg) {
+                if ($arg instanceof Arg && ($arg->value instanceof Closure || $arg->value instanceof ArrowFunction)) {
+                    foreach ($finder->findInstanceOf($arg->value, MethodCall::class) as $inner) {
+                        $inner->setAttribute(self::DELIBERATE_FAILURE, true);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** The call a chain of `->step()` / `->property` links starts from. */
+    private static function chainRoot(MethodCall $call): Node\Expr
+    {
+        $root = $call->var;
+        while ($root instanceof MethodCall || $root instanceof PropertyFetch) {
+            $root = $root->var;
+        }
+
+        return $root;
+    }
+
+    /** Whether the test chain step `$call` makes Pest expect the test to fail an assertion. */
+    private static function expectsFailure(MethodCall $call, Codebase $codebase): bool
+    {
+        if (!$call->name instanceof Identifier) {
+            return false;
+        }
+
+        $step = $call->name->toLowerString();
+        if ($step === 'fails') {
+            return true;
+        }
+
+        // The literal condition that turns each conditional step off; any other condition may hold.
+        $offWhen = ['throws' => null, 'throwsif' => 'false', 'throwsunless' => 'true'];
+        if (!\array_key_exists($step, $offWhen)) {
+            return false;
+        }
+
+        $condition = $step === 'throws' ? null : self::argument($call, 0, 'condition');
+        if ($condition instanceof ConstFetch && $condition->name->toLowerString() === $offWhen[$step]) {
+            return false;
+        }
+
+        $exception = self::argument($call, $step === 'throws' ? 0 : 1, 'exception');
+        if ($exception instanceof String_) {
+            // Pest takes a string that class_exists() accepts as the class: any case, one leading backslash.
+            $class = \str_starts_with($exception->value, '\\') ? \substr($exception->value, 1) : $exception->value;
+        } elseif ($exception instanceof ClassConstFetch
+            && $exception->class instanceof Name
+            && $exception->name instanceof Identifier
+            && $exception->name->toLowerString() === 'class'
+        ) {
+            $class = NameResolution::resolved($exception->class) ?? $exception->class->toString();
+        } else {
+            return false;
+        }
+
+        return \strcasecmp($class, self::ASSERTION_FAILED) === 0
+            || $codebase->classOrInterfaceExists($class) && $codebase->classExtendsOrImplements($class, self::ASSERTION_FAILED);
+    }
+
+    /** The value passed as parameter `$name`, by name or at `$position`. */
+    private static function argument(MethodCall $call, int $position, string $name): ?Node\Expr
+    {
+        foreach ($call->args as $index => $arg) {
+            if (!$arg instanceof Arg || $arg->unpack) {
+                return null;
+            }
+
+            if ($arg->name instanceof Identifier ? $arg->name->name === $name : $index === $position) {
+                return $arg->value;
+            }
+        }
+
+        return null;
     }
 
     /** @return list<string> */
@@ -242,7 +414,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             if ($expr instanceof MethodCall && ($isCustom || $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name))) {
                 $asserted = ExpectNarrowingHandler::assertedType($member->toLowerString(), $expr, $source);
                 if ($asserted instanceof Atomic && !ExpectNarrowingHandler::narrow($receiver->type_params[1], $asserted, false, $source, $codebase) instanceof Union) {
-                    self::reportImpossible($member, $receiver->type_params[1], $source);
+                    self::reportImpossible($member, $receiver->type_params[1], $expr, $source);
 
                     return self::generic(PestApi::HIGHER_ORDER_EXPECTATION, $value, Type::getMixed());
                 }
@@ -264,7 +436,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             $negated = $receiver->value === PestApi::OPPOSITE_EXPECTATION;
             $narrowed = ExpectNarrowingHandler::narrow($value, $asserted, $negated, $source, $codebase);
             if (!$narrowed instanceof \Psalm\Type\Union && !$negated) {
-                self::reportImpossible($member, $value, $source);
+                self::reportImpossible($member, $value, $expr, $source);
             }
 
             // A broken chain has no known value: the steps after the failing one must not report again.
@@ -289,10 +461,11 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
      * Pest's type matchers are strict, so one that no value of `$value` can pass always fails the test. The
      * narrowing handler stays quiet about it on purpose; this is the diagnostic. A `never` value is no value to
      * judge (Psalm already failed on it, or a call it cannot resolve yields it), like in {@see self::memberOf()}.
+     * Two kinds of deliberate failure stay silent: assertions inside a `->fails()` test and a manual failure.
      */
-    private static function reportImpossible(Identifier $member, Union $value, StatementsSource $source): void
+    private static function reportImpossible(Identifier $member, Union $value, MethodCall|PropertyFetch $expr, StatementsSource $source): void
     {
-        if ($value->isNever()) {
+        if ($value->isNever() || $expr->getAttribute(self::DELIBERATE_FAILURE) === true || self::isManualFailure($member, $expr, $source)) {
             return;
         }
 
@@ -303,6 +476,41 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             ),
             $source->getSuppressedIssues(),
         );
+    }
+
+    /**
+     * `expect(false)->toBeTrue('send() should not throw')`: with a message, a literal `true` / `false` subject
+     * is a common idiom for failing a test by hand, not a mistaken type check. A bare `expect(true)->toBeFalse()`
+     * and a non-literal `false` value (`expect($flag)->toBeTrue('x')`, a likely logic bug) are still reported.
+     */
+    private static function isManualFailure(Identifier $member, MethodCall|PropertyFetch $expr, StatementsSource $source): bool
+    {
+        if (!$expr instanceof MethodCall || $expr->args === [] || !\in_array($member->toLowerString(), ['tobetrue', 'tobefalse'], true)) {
+            return false;
+        }
+
+        $subject = $expr->var instanceof FuncCall && self::calls($expr->var, 'expect', $source) ? ($expr->var->args[0] ?? null) : null;
+
+        return $subject instanceof Arg
+            && $subject->value instanceof ConstFetch
+            && \in_array($subject->value->name->toLowerString(), ['true', 'false'], true);
+    }
+
+    /**
+     * Whether `$call` reaches the global function `$function` the way Psalm resolves a name (`\it()`, an import, an
+     * unqualified call in a namespace without its own `it()`), not a namespaced function of that name.
+     */
+    private static function calls(FuncCall $call, string $function, StatementsSource $source): bool
+    {
+        $name = $call->name;
+        $functions = $source->getCodebase()->functions;
+        if (!$name instanceof Name || !$source instanceof StatementsAnalyzer) {
+            return false;
+        }
+
+        $id = \strtolower($functions->getFullyQualifiedFunctionNameFromString($name->toCodeString(), $source));
+
+        return $id === $function || $name->isUnqualified() && $name->toLowerString() === $function && !$functions->functionExists($source, $id);
     }
 
     /**
