@@ -11,6 +11,12 @@ namespace PestRepeatFixture {
     }
 
     (new Own())->repeat(0);
+
+    function either(bool $pest, \Pest\PendingCalls\TestCall $test): void
+    {
+        $call = $pest ? $test : new Own();
+        $call->repeat(0);
+    }
 }
 
 namespace {
@@ -35,6 +41,10 @@ namespace {
         /** @psalm-suppress InvalidScalarArgument */
         it('after unpack', function (): void {})->repeat(...$args, times: 0);
 
+        describe('group', function (): void {})->repeat(0);
+        describe('group', function (): void {})->flaky(-1);
+        describe('group', function (): void {})->group('g')->repeat(times: -1);
+
         it('three', function (): void {})->repeat(3);
         it('int', function (): void {})->repeat($n);
         it('positive', function (): void {})->repeat($positive);
@@ -45,6 +55,7 @@ namespace {
         /** @psalm-suppress MixedArgument */
         it('mixed', function (): void {})->repeat($unknown);
         it('zero or one', function (): void {})->repeat(rand(0, 1) === 0 ? 0 : 1);
+        describe('group', function (): void {})->repeat(2);
         it('chained', function (): void {})->group('a')->repeat(2)->flaky(5);
     }
 }
@@ -58,3 +69,6 @@ PestInvalidRepeatCount on line %d: Pest throws while loading the file when repea
 PestInvalidRepeatCount on line %d: Pest throws while loading the file when flaky() receives int<min, -1>: the count must be greater than 0.
 PestInvalidRepeatCount on line %d: Pest throws while loading the file when repeat() receives -2|0: the count must be greater than 0.
 PestInvalidRepeatCount on line %d: Pest throws while loading the file when repeat() receives 0: the count must be greater than 0.
+PestInvalidRepeatCount on line %d: Pest throws while loading the file when repeat() receives 0: the count must be greater than 0.
+PestInvalidRepeatCount on line %d: Pest throws while loading the file when flaky() receives -1: the count must be greater than 0.
+PestInvalidRepeatCount on line %d: Pest throws while loading the file when repeat() receives -1: the count must be greater than 0.

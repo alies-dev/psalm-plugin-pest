@@ -5,54 +5,58 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use AliesDev\PsalmPluginPest\Issue\PestInvalidRepeatCount;
+use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Identifier;
 use Psalm\CodeLocation;
 use Psalm\IssueBuffer;
-use Psalm\Plugin\EventHandler\AfterMethodCallAnalysisInterface;
-use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
+use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Type\Atomic\TIntRange;
 use Psalm\Type\Atomic\TLiteralInt;
+use Psalm\Type\Atomic\TNamedObject;
 
 /**
- * Reports a count that is below 1 on every path passed to `TestCall::repeat()` or `::flaky()`: Pest throws
- * `InvalidArgumentException` for it while loading the file. `int` and `positive-int` stay silent.
+ * Reports a count that is below 1 on every path passed to `repeat()` or `flaky()` on a test or a
+ * `describe()` (Pest replays it on each test inside): Pest throws `InvalidArgumentException` for it while
+ * loading the file. `int` and `positive-int` stay silent.
+ *
+ * Keyed on the receiver's type rather than the method hook: `describe()->repeat()` is a magic call, which
+ * Psalm does not report to the method hooks, and a hook fires once per receiver alternative, so a
+ * `TestCall|Other` receiver would report a count that `Other::repeat()` may accept. Every alternative
+ * must be Pest's.
  */
-final class RepeatCountHandler implements AfterMethodCallAnalysisInterface
+final class RepeatCountHandler implements AfterExpressionAnalysisInterface
 {
-    /** Declaring method id (lowercase) => [method as written, parameter name]. */
-    private const METHODS = [
-        'pest\pendingcalls\testcall::repeat' => ['repeat', 'times'],
-        'pest\pendingcalls\testcall::flaky' => ['flaky', 'tries'],
-    ];
+    /** Method id => parameter name. */
+    private const METHODS = ['repeat' => 'times', 'flaky' => 'tries'];
+
+    private const RECEIVERS = [PestApi::TEST_CALL, PestApi::DESCRIBE_CALL];
 
     #[\Override]
-    public static function afterMethodCallAnalysis(AfterMethodCallAnalysisEvent $event): void
+    public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
-        $method = self::METHODS[\strtolower($event->getDeclaringMethodId())] ?? null;
-        if ($method === null) {
-            return;
+        $call = $event->getExpr();
+        if (!$call instanceof MethodCall || !$call->name instanceof Identifier || $call->isFirstClassCallable()) {
+            return null;
         }
 
-        [$name, $param] = $method;
+        $name = \strtolower($call->name->name);
+        $param = self::METHODS[$name] ?? null;
         $source = $event->getStatementsSource();
-        foreach ($event->getExpr()->getArgs() as $index => $arg) {
+        $nodeTypes = $source->getNodeTypeProvider();
+        $receiver = $param === null ? null : $nodeTypes->getType($call->var);
+        if (!$receiver instanceof \Psalm\Type\Union || !self::isPestReceiver($receiver)) {
+            return null;
+        }
+
+        foreach ($call->getArgs() as $index => $arg) {
             if ($arg->unpack || ($arg->name === null ? $index !== 0 : $arg->name->name !== $param)) {
                 continue;
             }
 
-            $type = $source->getNodeTypeProvider()->getType($arg->value);
-            if (!$type instanceof \Psalm\Type\Union) {
-                return;
-            }
-
-            foreach ($type->getAtomicTypes() as $atomic) {
-                $isBelowOne = match (true) {
-                    $atomic instanceof TLiteralInt => $atomic->value < 1,
-                    $atomic instanceof TIntRange => $atomic->max_bound !== null && $atomic->max_bound < 1,
-                    default => false,
-                };
-                if (!$isBelowOne) {
-                    return;
-                }
+            $type = $nodeTypes->getType($arg->value);
+            if (!$type instanceof \Psalm\Type\Union || !self::isBelowOne($type)) {
+                return null;
             }
 
             IssueBuffer::maybeAdd(
@@ -63,7 +67,36 @@ final class RepeatCountHandler implements AfterMethodCallAnalysisInterface
                 $source->getSuppressedIssues(),
             );
 
-            return;
+            return null;
         }
+
+        return null;
+    }
+
+    private static function isPestReceiver(\Psalm\Type\Union $receiver): bool
+    {
+        foreach ($receiver->getAtomicTypes() as $atomic) {
+            if (!$atomic instanceof TNamedObject || !\in_array($atomic->value, self::RECEIVERS, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function isBelowOne(\Psalm\Type\Union $type): bool
+    {
+        foreach ($type->getAtomicTypes() as $atomic) {
+            $isBelowOne = match (true) {
+                $atomic instanceof TLiteralInt => $atomic->value < 1,
+                $atomic instanceof TIntRange => $atomic->max_bound !== null && $atomic->max_bound < 1,
+                default => false,
+            };
+            if (!$isBelowOne) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
