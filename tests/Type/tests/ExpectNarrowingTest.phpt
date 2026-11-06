@@ -129,6 +129,94 @@ namespace PestExpectNarrowingFixture {
         expect($other)->toBeInt()->and($other)->toBe($other = null);
         /** @psalm-check-type-exact $other = null */
     }
+
+    final class Doc
+    {
+        public function __construct(public string $slug) {}
+    }
+
+    // The narrowing is visible to the arguments of the later calls of the same chain.
+    function laterArguments(?Doc $doc, ?Doc $other, int|false $heading, int|false $index, null|int|string $mixed): void
+    {
+        expect($doc)->not->toBeNull()
+            ->and($doc->slug)->toBe('x');
+
+        expect($heading)->toBeInt()
+            ->and($index)->toBeGreaterThan($heading);
+
+        // A later `and()` makes its variable the subject, and the earlier ones keep what they were given.
+        expect($mixed)->not->toBeNull()
+            ->and($other)->not->toBeNull()
+            ->and($other->slug)->toBe('y')
+            ->and($mixed)->toBeInt();
+        /** @psalm-check-type-exact $mixed = int */
+    }
+
+    // A negation lasts for one assertion: the `toBeInt()` below `not->toBeNull()` is not negated.
+    function negationScope(?Doc $doc, null|int|string $a): void
+    {
+        expect($doc)->not->toBeNull()->and($doc->slug)->toBeString();
+
+        expect($a)->not->toBeNull()->toBeInt()->and($a)->toBeGreaterThan(1);
+        /** @psalm-check-type-exact $a = int */
+    }
+
+    // #117: `expect()` of anything but a variable still lets a later `and()` narrow.
+    function nonVariableRoot(?Doc $doc, ?Doc $other, null|int|string $a): void
+    {
+        expect(1)->toBe(1)->and($doc)->not->toBeNull();
+        /** @psalm-check-type-exact $doc = Doc */
+
+        expect($doc->slug)->toBe('x')->and($other)->not->toBeNull()->and($other->slug)->toBe('y');
+
+        expect($a)->toBe(1)->and(1)->toBe(1)->toBeInt();
+        /** @psalm-check-type-exact $a = int|string|null */
+    }
+
+    // The narrowing follows the control flow: it does not leak out of a branch.
+    function branches(null|int|string $a, null|int|string $b, null|int|string $c, bool $flag): void
+    {
+        if ($flag) {
+            expect($a)->not->toBeNull();
+            /** @psalm-check-type-exact $a = int|string */
+        }
+        /** @psalm-check-type-exact $a = int|string|null */
+
+        $flag ? expect($b)->toBeInt() : null;
+        /** @psalm-check-type-exact $b = int|string|null */
+
+        $flag && expect($c)->toBeString();
+        /** @psalm-check-type-exact $c = int|string|null */
+    }
+
+    // A loop analyses its body again with the reassigned variable: the narrowing is redone, not carried over.
+    function loop(null|int|string $a, int $n): int
+    {
+        $seen = 0;
+
+        for ($i = 0; $i < $n; $i++) {
+            expect($a)->toBeInt();
+            /** @psalm-check-type-exact $a = int */
+            $seen = $a;
+
+            $a = null;
+        }
+
+        return $seen;
+    }
+
+    // A closure is analysed in its own scope: what it asserts stays inside.
+    function closure(null|int|string $a): \Closure
+    {
+        $check = static function () use ($a): void {
+            expect($a)->not->toBeNull();
+            /** @psalm-check-type-exact $a = int|string */
+        };
+
+        /** @psalm-check-type-exact $a = int|string|null */
+
+        return $check;
+    }
 }
 
 namespace PestExpectNarrowingFixture\Own {
