@@ -13,12 +13,16 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
-use PhpParser\Node\Stmt\Expression;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
+use Psalm\CodeLocation;
+use Psalm\Context;
+use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
-use Psalm\Plugin\EventHandler\AfterStatementAnalysisInterface;
-use Psalm\Plugin\EventHandler\Event\AfterStatementAnalysisEvent;
+use Psalm\Internal\Analyzer\TraitAnalyzer;
+use Psalm\IssueBuffer;
+use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\Assertion;
 use Psalm\Storage\Assertion\IsNotType;
@@ -32,20 +36,24 @@ use Psalm\Type\Reconciler;
 use Psalm\Type\Union;
 
 /**
- * Narrows the subject of a statement-level `expect($var)->...` chain for the code after it, as PHPUnit's
- * `assertNotNull()` does through `@psalm-assert`: after `expect($ad)->not->toBeNull();` `$ad` is no longer
- * nullable. Pest's assertions are dynamic (`Expectation::__call()`), so a handler walks the chain from `expect()`:
+ * Narrows the subject of an `expect($var)->...` chain as PHPUnit's `assertNotNull()` does through `@psalm-assert`:
+ * after `expect($ad)->not->toBeNull()` `$ad` is no longer nullable, also for the arguments of the later calls of
+ * the same chain (`->and($ad->slug)`). Pest's assertions are dynamic (`Expectation::__call()`), so the handler runs
+ * on every assertion call and reads the chain below it, down to Pest's `expect()`. Psalm analyses a call's receiver
+ * before its arguments, so the narrowed context is the one the following steps are analysed in.
  *
  *  - the root must be Pest's global `expect()`: another function returning an `Expectation` may assert on
  *    something else than its argument (`assertThat($x)` wrapping `expect($x ?? 'fallback')`);
- *  - `->not` / `->not()` negates the next assertion only (Pest hands back the original expectation);
- *  - an assertion in {@see self::ASSERTIONS} (or `toBeInstanceOf()`) narrows the current subject, any other `to*`
- *    returns the same expectation; `->and($var)` makes `$var` the subject;
+ *  - the subject is the plain variable of the nearest `->and($var)` below the assertion, else the argument of
+ *    `expect()`; any other subject (`expect(1)`, `->and($a->b)`) narrows nothing;
+ *  - `->not` / `->not()` directly before an assertion negates it (Pest hands back the original expectation);
+ *  - an assertion in {@see self::ASSERTIONS} (or `toBeInstanceOf()`) narrows the subject, any other `to*` returns
+ *    the same expectation;
  *  - every other member (`each`, `json()`, higher-order access) or a first-class callable (`->toBeNull(...)`,
- *    which only builds a Closure) ends the walk: what they assert on is no longer the variable.
+ *    which only builds a Closure) below the assertion ends the chain: what it asserts on is no longer the variable.
  *
- * Members are compared lowercased, as PHP dispatches them case-insensitively. A statement that writes a variable
- * anywhere in the chain (`->and($value = ...)`) is left alone: the assertion ran on a value the analysis cannot
+ * Members are compared lowercased, as PHP dispatches them case-insensitively. An assertion whose chain writes a
+ * variable anywhere (`->and($value = ...)`) is left alone: the assertion ran on a value the analysis cannot
  * attribute to the variable any more.
  *
  * The narrowing is Psalm's reconciler with `IsType` / `IsNotType`, so it intersects with the known type as
@@ -55,7 +63,7 @@ use Psalm\Type\Union;
  * reports it). Only plain variables are narrowed, and not those a closure of the enclosing test binds by
  * reference ({@see ByRefCaptures}): they change behind the narrowing's back.
  */
-final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
+final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
 {
     /** Lowercased Pest assertion => Psalm type of the subject once it passes. */
     private const ASSERTIONS = [
@@ -77,31 +85,18 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
     ];
 
     #[\Override]
-    public static function afterStatementAnalysis(AfterStatementAnalysisEvent $event): ?bool
+    public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
-        $stmt = $event->getStmt();
+        $call = $event->getExpr();
         $source = $event->getStatementsSource();
-        if (!$stmt instanceof Expression || !$source instanceof StatementsAnalyzer) {
+        if (!$call instanceof MethodCall || !$source instanceof StatementsAnalyzer || $call->isFirstClassCallable()) {
             return null;
         }
 
-        // `expect($x)->a->b()` => the `expect($x)` call and the members applied to it, in call order.
-        $steps = [];
-        $root = $stmt->expr;
-        while ($root instanceof MethodCall || $root instanceof PropertyFetch) {
-            $steps[] = $root;
-            $root = $root->var;
-        }
-
-        if (!$root instanceof FuncCall || $steps === [] || self::writesVariable($stmt->expr)) {
-            return null;
-        }
-
-        $subject = self::expectSubject($root, $source, $event->getCodebase());
-        if ($subject !== null) {
-            $context = $event->getContext();
-            $assertions = \array_intersect_key(self::collect($subject, \array_reverse($steps), $source), $context->vars_in_scope);
-            $assertions = \array_filter($assertions, static fn(string $id): bool => !ByRefCaptures::isCaptured($id, $source), \ARRAY_FILTER_USE_KEY);
+        $context = $event->getContext();
+        $assertions = \array_intersect_key(self::collect($call, $source, $event->getCodebase()), $context->vars_in_scope);
+        $assertions = \array_filter($assertions, static fn(string $id): bool => !ByRefCaptures::isCaptured($id, $source), \ARRAY_FILTER_USE_KEY);
+        if ($assertions !== []) {
             [$context->vars_in_scope, $context->references_in_scope] = self::reconcile(
                 $assertions,
                 $context->vars_in_scope,
@@ -109,6 +104,7 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
                 $context->inside_loop,
                 $source,
                 $event->getCodebase(),
+                $context,
             );
         }
 
@@ -127,80 +123,80 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
     }
 
     /**
-     * The `$var` handed to Pest's global `expect()`, as its id in scope (`$name`). The call must reach the global
-     * function the way Psalm resolves a name (`\expect()`, `use function expect as e`, an unqualified call in a
-     * namespace without its own `expect()`) and return Pest's `Expectation`.
+     * Whether `$call` is Pest's global `expect()`: it must reach the global function the way Psalm resolves a name
+     * (`\expect()`, `use function expect as e`, an unqualified call in a namespace without its own `expect()`) and
+     * return Pest's `Expectation`.
      */
-    private static function expectSubject(FuncCall $call, StatementsAnalyzer $source, Codebase $codebase): ?string
+    private static function isPestExpect(FuncCall $call, StatementsAnalyzer $source, Codebase $codebase): bool
     {
         $name = $call->name;
         if (!$name instanceof Name) {
-            return null;
+            return false;
         }
 
         $functions = $codebase->functions;
         $id = \strtolower($functions->getFullyQualifiedFunctionNameFromString($name->toCodeString(), $source));
         if ($id !== 'expect' && ($name->toLowerString() !== 'expect' || $functions->functionExists($source, $id))) {
-            return null;
+            return false;
         }
 
         $returned = self::atomic($source->getNodeTypeProvider()->getType($call));
-        if (!$returned instanceof TNamedObject || \strcasecmp($returned->value, PestApi::EXPECTATION) !== 0) {
-            return null;
-        }
 
-        return self::variableId($call->args[0] ?? null);
+        return $returned instanceof TNamedObject && \strcasecmp($returned->value, PestApi::EXPECTATION) === 0;
     }
 
     /**
-     * Walks the chain from `expect()` outward: per variable, the reconciler assertions it implies.
-     *
-     * @param list<MethodCall|PropertyFetch> $steps
+     * Walks the chain below `$call` down to `expect()`: per variable, the reconciler assertions `$call` implies.
      *
      * @return array<string, list<list<Assertion>>>
      */
-    private static function collect(string $subject, array $steps, StatementsSource $source): array
+    private static function collect(MethodCall $call, StatementsAnalyzer $source, Codebase $codebase): array
     {
-        $assertions = [];
+        $type = $call->name instanceof Identifier ? self::assertedType($call->name->toLowerString(), $call, $source) : null;
+        if (!$type instanceof Atomic) {
+            return [];
+        }
+
+        $subject = null;
+        $subjectKnown = false;
         $negated = false;
+        $negating = true;
+        $node = $call->var;
 
-        foreach ($steps as $step) {
-            $member = $step->name instanceof Identifier ? $step->name->toLowerString() : '';
+        while ($node instanceof MethodCall || $node instanceof PropertyFetch) {
+            $member = $node->name instanceof Identifier ? $node->name->toLowerString() : '';
 
-            if ($member === 'not' && (!$step instanceof MethodCall || $step->args === [])) {
-                $negated = !$negated;
+            if ($member === 'not' && (!$node instanceof MethodCall || $node->args === [])) {
+                $negated = $negating ? !$negated : $negated;
+                $node = $node->var;
 
                 continue;
             }
 
-            if (!$step instanceof MethodCall) {
-                break;
+            $negating = false;
+            if (!$node instanceof MethodCall || $node->isFirstClassCallable()) {
+                return [];
             }
 
             if ($member === 'and') {
-                $subject = \count($step->args) === 1 ? self::variableId($step->args[0]) : null;
-                if ($subject === null) {
-                    break;
+                if (!$subjectKnown) {
+                    $subjectKnown = true;
+                    $subject = \count($node->args) === 1 ? self::variableId($node->args[0]) : null;
                 }
-
-                $negated = false;
-
-                continue;
+            } elseif (!\str_starts_with($member, 'to')) {
+                return [];
             }
 
-            if (!\str_starts_with($member, 'to') || $step->isFirstClassCallable()) {
-                break;
-            }
-
-            $type = self::assertedType($member, $step, $source);
-            if ($type instanceof Atomic) {
-                $assertions[$subject][] = [$negated ? new IsNotType($type) : new IsType($type)];
-            }
-
-            $negated = false;
+            $node = $node->var;
         }
 
-        return $assertions;
+        if (!$node instanceof FuncCall || !self::isPestExpect($node, $source, $codebase) || self::writesVariable($call)) {
+            return [];
+        }
+
+        $subject = $subjectKnown ? $subject : self::variableId($node->args[0] ?? null);
+
+        return $subject === null ? [] : [$subject => [[$negated ? new IsNotType($type) : new IsType($type)]]];
     }
 
     /**
@@ -301,32 +297,63 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         bool $insideLoop,
         StatementsAnalyzer $source,
         Codebase $codebase,
+        Context $context,
     ): array {
-        [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source);
+        $changedVarIds = [];
+        [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source, $changedVarIds);
 
         foreach (\array_keys($assertions) as $varId) {
             $narrowed = $reconciled[$varId] ?? null;
 
             // An impossible assertion keeps the type the code had: `never` would only breed noise.
-            $reconciled[$varId] = self::impossible($narrowed, $vars[$varId], $codebase)
-                ? $vars[$varId]
-                : $narrowed->setFromDocblock(true);
+            if (self::impossible($narrowed, $vars[$varId], $codebase)) {
+                $reconciled[$varId] = $vars[$varId];
+
+                continue;
+            }
+
+            $reconciled[$varId] = $narrowed->setFromDocblock(true);
+            if (isset($changedVarIds[$varId]) && $vars[$varId]->hasMixed()) {
+                self::forgetMixedAssignment($varId, $source, $codebase, $context);
+            }
         }
 
         return [$reconciled, $references];
     }
 
     /**
+     * A mixed variable the assertion gave a type is no longer an untyped assignment, as after `@psalm-assert`
+     * (Psalm's `CallAnalyzer::applyAssertionsToContext()`): the MixedAssignment of its first appearance goes away.
+     */
+    private static function forgetMixedAssignment(string $varId, StatementsAnalyzer $source, Codebase $codebase, Context $context): void
+    {
+        $firstAppearance = $source->getFirstAppearance($varId);
+        if (!$firstAppearance instanceof CodeLocation) {
+            return;
+        }
+
+        $parent = $source->getSource();
+        if (
+            !$context->collect_initializations && !$context->collect_mutations
+            && $source->getFilePath() === $source->getRootFilePath()
+            && (!$parent instanceof FunctionLikeAnalyzer || !$parent->getSource() instanceof TraitAnalyzer)
+        ) {
+            $codebase->analyzer->decrementMixedCount($source->getFilePath());
+        }
+
+        IssueBuffer::remove($source->getFilePath(), 'MixedAssignment', $firstAppearance->raw_file_start);
+    }
+
+    /**
      * @param array<string, list<list<Assertion>>> $assertions
      * @param array<string, Union> $vars
      * @param array<string, string> $references
+     * @param array<string, bool> $changedVarIds
      *
      * @return array{array<string, Union>, array<string, string>}
      */
-    private static function run(array $assertions, array $vars, array $references, bool $insideLoop, StatementsAnalyzer $source): array
+    private static function run(array $assertions, array $vars, array $references, bool $insideLoop, StatementsAnalyzer $source, array &$changedVarIds = []): array
     {
-        $changedVarIds = [];
-
         return Reconciler::reconcileKeyedTypes($assertions, [], $vars, $references, $changedVarIds, [], $source, [], $insideLoop);
     }
 
