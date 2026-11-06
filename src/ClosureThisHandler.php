@@ -8,6 +8,9 @@ use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\NullsafeMethodCall;
+use PhpParser\Node\Expr\NullsafePropertyFetch;
+use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use Psalm\Codebase;
@@ -24,13 +27,15 @@ use Psalm\Type\Union;
 
 /**
  * Binds `$this` in the closures Pest runs on the TestCase: `test()` / `it()` / `beforeEach()` /
- * `afterEach()`, `TestCall::with()` datasets, and the hooks of a `uses()` / `pest()` chain.
+ * `afterEach()`, `TestCall::with()` datasets, the hooks of a `uses()` / `pest()` chain and the
+ * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain.
  *
  * Pest tags them `@param-closure-this TestCall`, whose `@mixin` union Psalm does not honor; the
  * `with()` and `UsesCall` closures carry no tag. A params provider answers per call site (no shared
  * state), and functions are registered only when the scanned one carries Pest's tag. It sees the
  * arguments but not the receiver, so a `UsesCall` hook is bound to the classes its own chain names
- * (`uses(A::class)->in('Feature')->beforeEach(...)`): {@see self::beforeExpressionAnalysis()}
+ * (`uses(A::class)->in('Feature')->beforeEach(...)`), and `Expectation::and()` only when its chain
+ * starts at `it()` / `test()` (elsewhere its closure is just a value): {@see self::beforeExpressionAnalysis()}
  * stashes the receiver on the first argument.
  */
 final class ClosureThisHandler implements AfterCodebasePopulatedInterface, BeforeExpressionAnalysisInterface, MethodParamsProviderInterface
@@ -41,9 +46,13 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     private const METHODS = [
         PestApi::TEST_CALL => ['with'],
         PestApi::USES_CALL => ['beforeeach', 'aftereach'],
+        PestApi::EXPECTATION => ['and'],
     ];
 
     private const RECEIVER = 'pest-receiver';
+
+    /** The method name as written at the call site (the providers only see it lowercased). */
+    private const WRITTEN = 'pest-written-method';
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -98,6 +107,10 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             return null;
         }
 
+        if ($class === PestApi::EXPECTATION && (!self::calledAs($arg, 'and') || !self::startsAtTest($arg->getAttribute(self::RECEIVER)))) {
+            return null;
+        }
+
         $chain = $class === PestApi::USES_CALL ? self::chainClasses($arg->getAttribute(self::RECEIVER)) : [];
 
         $type = BoundTestCase::thisTypeOf($codebase, $chain);
@@ -114,9 +127,39 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         $call = $event->getExpr();
         if ($call instanceof MethodCall && isset($call->args[0])) {
             $call->args[0]->setAttribute(self::RECEIVER, $call->var);
+            $call->args[0]->setAttribute(self::WRITTEN, $call->name instanceof Identifier ? $call->name->name : null);
         }
 
         return null;
+    }
+
+    /**
+     * Whether the call took `$arg` as its first argument under exactly the method name `$name`. Psalm
+     * lowercases the name it hands to providers, but Pest looks a higher-order `expect()` / `and()` up
+     * case-sensitively (`HigherOrderMessage::hasHigherOrderCallable()`), so `And()` binds nothing.
+     */
+    public static function calledAs(?Arg $arg, string $name): bool
+    {
+        return $arg?->getAttribute(self::WRITTEN) === $name;
+    }
+
+    /**
+     * Whether a chain starts at Pest's `it('x')` / `test('x')`: Pest replays the rest of that chain
+     * (method calls and property fetches such as `->not`) through `HigherOrderCallables`, which binds
+     * the closure of `expect()` / `and()` to the TestCase. Any other `Expectation::and()` takes the
+     * closure as a plain value. A qualified or imported function of another namespace
+     * (`\Other\test()`) is told apart by its resolved name.
+     */
+    private static function startsAtTest(mixed $link): bool
+    {
+        while ($link instanceof MethodCall || $link instanceof NullsafeMethodCall || $link instanceof PropertyFetch || $link instanceof NullsafePropertyFetch) {
+            $link = $link->var;
+        }
+
+        return $link instanceof FuncCall
+            && $link->name instanceof Name
+            && $link->args !== []
+            && \in_array(\strtolower(NameResolution::resolved($link->name) ?? $link->name->toString()), ['it', 'test'], true);
     }
 
     /**
@@ -152,7 +195,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      * @param list<string> $traits
      * @return array<int, FunctionLikeParameter>
      */
-    private static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
+    public static function bind(Codebase $codebase, array $params, int $offset, ?Union $type, array $traits): array
     {
         $class = $type?->getSingleAtomic();
         if (!$class instanceof TNamedObject) {

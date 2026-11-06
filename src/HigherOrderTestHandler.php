@@ -24,8 +24,8 @@ use Psalm\Type\Union;
  * Resolves Pest's higher-order tests, `it('x')->actingAsAdmin()->group('g')`: `TestCall::__call()`
  * records the call and returns the `TestCall`; Pest later replays the recorded calls on the file's
  * bound TestCase (or its bound traits, exposed on it), each on the previous call's non-null result.
- * `->expect()` / `->and()` start an `Expectation` of `mixed`. Other names keep Psalm's
- * `UndefinedMagicMethod`.
+ * `->expect()` / `->and()` start an `Expectation` of `mixed`, and bind a closure value to the TestCase
+ * ({@see ClosureThisHandler}). Other names keep Psalm's `UndefinedMagicMethod`.
  */
 final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
 {
@@ -52,10 +52,20 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
                     return null;
                 }
 
-                // HigherOrderCallables::expect() is templated, which Psalm cannot bind here.
-                return \in_array($name, self::EXPECTATION_METHODS, true)
-                    ? [new FunctionLikeParameter('value', false, Type::getMixed(), Type::getMixed())]
-                    : $source->getCodebase()->getMethodParams($method);
+                if (!\in_array($name, self::EXPECTATION_METHODS, true)) {
+                    return $source->getCodebase()->getMethodParams($method);
+                }
+
+                // HigherOrderCallables::expect() is templated, which Psalm cannot bind here. It binds a closure
+                // value to the TestCase (`Reflection::bindCallableWithData()`), but only when the call is spelled
+                // exactly `expect` / `and`: Pest matches the name case-sensitively.
+                $codebase = $source->getCodebase();
+                $file = $source->getFilePath();
+                $params = [new FunctionLikeParameter('value', false, Type::getMixed(), Type::getMixed())];
+
+                return ClosureThisHandler::calledAs(($event->getCallArgs() ?? [])[0] ?? null, $name)
+                    ? ClosureThisHandler::bind($codebase, $params, 0, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file))
+                    : $params;
             },
         );
         $codebase->methods->return_type_provider->registerClosure(

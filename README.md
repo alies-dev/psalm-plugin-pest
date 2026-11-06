@@ -58,6 +58,7 @@ it('totals the cart', function () {
 | `$this->user` set in `beforeEach()` | A declared property with its type, also from `tests/Pest.php` |
 | `test()` with no arguments | The bound TestCase |
 | `it('x')->actingAsAdmin()` | A resolved higher order call |
+| `it('x')->expect(fn () => $this->cart)` | `$this` is your TestCase in higher order `expect()` / `and()` closures |
 | `expect($user)->name->toBe('Ada')` | `Expectation<T>` through `->not`, `->each` and member access |
 | `expect($user)->not->toBeNull()` | `$user` narrowed to non-null afterwards |
 | `pest()->printer()`, arch chains | Public API, no `InternalMethod` noise |
@@ -82,6 +83,8 @@ Suppress any of them like a regular Psalm issue.
 * Config only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
 * Custom expectations from `expect()->extend()` are still reported.
 * Narrowing works on plain variables, not on `$this->prop`.
+* Pest runs a higher order `expect()` / `and()` closure without the TestCase's class scope, so a protected or private TestCase member used there fails at runtime but is not reported.
+* On Psalm 6, a closure passed to a higher order `it('x')->expect()` keeps `InvalidScope`, because Psalm 6 does not ask plugins about the arguments of a magic `__call()` method. A later `->and()` closure is bound.
 
 Found a false positive? [Open an issue](https://github.com/alies-dev/psalm-plugin-pest/issues) with a snippet.
 
