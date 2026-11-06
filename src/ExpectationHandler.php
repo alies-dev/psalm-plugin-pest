@@ -5,9 +5,18 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use AliesDev\PsalmPluginPest\Issue\PestImpossibleExpectation;
+use PhpParser\Node;
+use PhpParser\Node\Arg;
+use PhpParser\Node\Expr\ArrowFunction;
+use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Expr\ConstFetch;
+use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 use Psalm\Codebase;
 use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
@@ -15,8 +24,10 @@ use Psalm\Issue\UndefinedMagicMethod;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeExpressionAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
@@ -56,8 +67,11 @@ use Psalm\Type\Union;
  * `expect()->extend()` assertions are invisible to a scan; `->not` / `->each` read through a proxy resolve from the
  * `Expectation` mixin (which wins over the proxy's own pseudo properties), so the value type is not tracked there.
  */
-final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface
+final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface
 {
+    /** Attribute on the calls inside a test closure that is expected to fail. */
+    public const DELIBERATE_FAILURE = 'pest-deliberate-failure';
+
     /** Each proxy and the class its `__call()` hands an assertion back as, on the proxy's own template arguments. */
     private const PROXY_RESULTS = [
         PestApi::OPPOSITE_EXPECTATION => PestApi::EXPECTATION,
@@ -144,6 +158,53 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         $parameter->type = new Union([new TNamedObject(\Closure::class), new TString(), new TNamedObject(\Throwable::class)]);
     }
 
+    /**
+     * A test chain that ends in `->fails()` expects its closure to fail, so the assertions inside it are not
+     * impossible by mistake. Psalm analyzes the closure while it analyzes `it()`, before the chain's own
+     * `->fails()` is seen from there; this runs first and marks the closure's calls for {@see self::reportImpossible()}.
+     */
+    #[\Override]
+    public static function beforeExpressionAnalysis(BeforeExpressionAnalysisEvent $event): ?bool
+    {
+        $call = $event->getExpr();
+        if (!$call instanceof MethodCall || !$call->name instanceof Identifier || $call->name->toLowerString() !== 'fails') {
+            return null;
+        }
+
+        $root = $call->var;
+        while ($root instanceof MethodCall) {
+            $root = $root->var;
+        }
+
+        if (!$root instanceof FuncCall
+            || !$root->name instanceof Name
+            || !\in_array(\strtolower(NameResolution::resolved($root->name) ?? $root->name->toString()), ['it', 'test'], true)
+        ) {
+            return null;
+        }
+
+        $marker = new NodeTraverser();
+        $marker->addVisitor(new class extends NodeVisitorAbstract {
+            #[\Override]
+            public function enterNode(Node $node): null
+            {
+                if ($node instanceof MethodCall) {
+                    $node->setAttribute(ExpectationHandler::DELIBERATE_FAILURE, true);
+                }
+
+                return null;
+            }
+        });
+
+        foreach ($root->args as $arg) {
+            if ($arg instanceof Arg && ($arg->value instanceof Closure || $arg->value instanceof ArrowFunction)) {
+                $marker->traverse([$arg->value]);
+            }
+        }
+
+        return null;
+    }
+
     #[\Override]
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
     {
@@ -197,7 +258,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             if ($expr instanceof MethodCall && $codebase->methodExists(PestApi::MIXIN_EXPECTATION . '::' . $member->name)) {
                 $asserted = ExpectNarrowingHandler::assertedType($member->toLowerString(), $expr, $source);
                 if ($asserted instanceof Atomic && !ExpectNarrowingHandler::narrow($receiver->type_params[1], $asserted, false, $source, $codebase) instanceof Union) {
-                    self::reportImpossible($member, $receiver->type_params[1], $source);
+                    self::reportImpossible($member, $receiver->type_params[1], $expr, $source);
 
                     return self::generic(PestApi::HIGHER_ORDER_EXPECTATION, $value, Type::getMixed());
                 }
@@ -219,7 +280,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             $negated = $receiver->value === PestApi::OPPOSITE_EXPECTATION;
             $narrowed = ExpectNarrowingHandler::narrow($value, $asserted, $negated, $source, $codebase);
             if (!$narrowed instanceof \Psalm\Type\Union && !$negated) {
-                self::reportImpossible($member, $value, $source);
+                self::reportImpossible($member, $value, $expr, $source);
             }
 
             // A broken chain has no known value: the steps after the failing one must not report again.
@@ -235,10 +296,11 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
      * Pest's type matchers are strict, so one that no value of `$value` can pass always fails the test. The
      * narrowing handler stays quiet about it on purpose; this is the diagnostic. A `never` value is no value to
      * judge (Psalm already failed on it, or a call it cannot resolve yields it), like in {@see self::memberOf()}.
+     * Two kinds of deliberate failure stay silent: assertions inside a `->fails()` test and a manual failure.
      */
-    private static function reportImpossible(Identifier $member, Union $value, StatementsSource $source): void
+    private static function reportImpossible(Identifier $member, Union $value, MethodCall|PropertyFetch $expr, StatementsSource $source): void
     {
-        if ($value->isNever()) {
+        if ($value->isNever() || $expr->getAttribute(self::DELIBERATE_FAILURE) === true || self::isManualFailure($member, $expr)) {
             return;
         }
 
@@ -249,6 +311,24 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             ),
             $source->getSuppressedIssues(),
         );
+    }
+
+    /**
+     * `expect(false)->toBeTrue('send() should not throw')`: with a message, a literal `true` / `false` subject
+     * is Pest's idiom for failing a test by hand, not a mistaken type check. A bare `expect(true)->toBeFalse()`
+     * and a non-literal `false` value (`expect($flag)->toBeTrue('x')`, a likely logic bug) are still reported.
+     */
+    private static function isManualFailure(Identifier $member, MethodCall|PropertyFetch $expr): bool
+    {
+        if (!$expr instanceof MethodCall || $expr->args === [] || !\in_array($member->toLowerString(), ['tobetrue', 'tobefalse'], true)) {
+            return false;
+        }
+
+        $subject = $expr->var instanceof FuncCall ? ($expr->var->args[0] ?? null) : null;
+
+        return $subject instanceof Arg
+            && $subject->value instanceof ConstFetch
+            && \in_array($subject->value->name->toLowerString(), ['true', 'false'], true);
     }
 
     /**
