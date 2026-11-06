@@ -12,6 +12,14 @@ namespace PestImpossibleExpectationFixture {
 
     final class Sealed {}
 
+    final class Cart
+    {
+        public static function total(): int
+        {
+            return 0;
+        }
+    }
+
     final class User
     {
         public string $name = 'Ada';
@@ -107,6 +115,21 @@ namespace PestImpossibleExpectationFixture {
         expect($other)->toBe(42);
         expect($other)->toBeEmpty();
     }
+
+    /**
+     * A `never` subject is no value a matcher can fail on: Psalm already reported the call it comes from, or
+     * cannot resolve it (a dynamic static call), and a second report would only mislead.
+     */
+    function neverSubject(\Countable $items, string $method): void
+    {
+        expect($items->total())->toBeNull();
+        expect($items->total())->toBeNull()->not->toBeString();
+        expect($items->total())->not->toBeNull();
+        expect(Cart::{$method}())->toBeTrue();
+
+        // A real value still reports.
+        expect(Cart::total())->toBeString();
+    }
 }
 ?>
 --EXPECTF--
@@ -133,3 +156,11 @@ PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check th
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for PestImpossibleExpectationFixture\User|null; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for string; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for string; assert the type the value has or remove the assertion.
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
