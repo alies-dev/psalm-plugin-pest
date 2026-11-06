@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 25 200 200"><rect x="20" y="25" width="200" height="200" fill="#18181b"/><mask id="mic"><rect x="0" y="0" width="240" height="240" fill="#fff"/><rect x="78" y="60" width="84" height="18" fill="#000"/></mask>
+<rect x="62" y="74" width="116" height="132" rx="24" fill="#fb70a9" fill-opacity=".08" stroke="#fb70a9" stroke-width="4" mask="url(#mic)"/>
+<rect x="76" y="62" width="88" height="14" fill="#fb70a9" fill-opacity=".08" stroke="#fb70a9" stroke-width="4"/>
+<rect x="68" y="44" width="104" height="20" rx="4" fill="#fb70a9"/><g transform="translate(124 140) scale(2.0)">
+<g stroke="#fb70a9" stroke-width="2.5" stroke-linecap="round" fill="none">
+<path d="M-10 -8 l-9 -4 M-11 0 l-10 2 M-9 8 l-8 6 M10 -8 l9 -4 M11 0 l10 2 M9 8 l8 6 M-3 -21 l-4 -8 M3 -21 l4 -8"/></g>
+<circle cy="-17" r="6" fill="#fb70a9"/><ellipse rx="11" ry="14" fill="#fb70a9"/>
+<circle cx="-2.5" cy="-18" r="2.2" fill="#18181b"/><circle cx="2.5" cy="-18" r="2.2" fill="#18181b"/>
+<path d="M-5 -22 l4 2 M5 -22 l-4 2" stroke="#18181b" stroke-width="1.2" stroke-linecap="round"/></g></svg>
