@@ -24,6 +24,7 @@ final class Plugin implements PluginEntryPointInterface
         DescribeCallHandler::class,
         CurrentTestHandler::class,
         BootFileFunctionsHandler::class,
+        CustomExpectations::class,
         BeforeEachPropertiesHandler::class,
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,
@@ -40,6 +41,7 @@ final class Plugin implements PluginEntryPointInterface
         // A reused process (language server, tests) must not see the previous run's answers.
         TestCaseResolver::reset();
         BootFileFunctionsHandler::reset();
+        CustomExpectations::reset();
 
         foreach (self::HANDLERS as $handler) {
             // registerHooksFromClass() checks class_exists($handler, false) and never autoloads.
