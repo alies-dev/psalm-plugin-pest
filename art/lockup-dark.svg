@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200"><g transform="translate(-36 -12)"><mask id="mld"><rect x="0" y="0" width="240" height="240" fill="#fff"/><rect x="78" y="60" width="84" height="18" fill="#000"/></mask>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200"><g transform="translate(-36 -12)"><mask id="mld"><rect x="0" y="0" width="240" height="240" fill="#fff"/><rect x="78" y="60" width="84" height="18" fill="#000"/></mask><mask id="mldb"><rect x="0" y="0" width="240" height="240" fill="#fff"/><path d="M162 24 h50 a6 6 0 0 1 6 6 v20 a6 6 0 0 1 -6 6 h-30 l-10 10 v-10 h-10 a6 6 0 0 1 -6 -6 v-20 a6 6 0 0 1 6 -6 z" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/></mask>
 <rect x="62" y="74" width="116" height="132" rx="24" fill="#fb70a9" fill-opacity=".08" stroke="#fb70a9" stroke-width="4" mask="url(#mld)"/>
 <rect x="76" y="62" width="88" height="14" fill="#fb70a9" fill-opacity=".08" stroke="#fb70a9" stroke-width="4"/>
-<rect x="68" y="44" width="104" height="20" rx="4" fill="#fb70a9"/><g stroke="#fb70a9" stroke-width="2" stroke-linecap="round" opacity=".55">
+<rect x="68" y="44" width="104" height="20" rx="4" fill="#fb70a9" mask="url(#mldb)"/><g stroke="#fb70a9" stroke-width="2" stroke-linecap="round" opacity=".55">
 <path d="M74 176 v18 M79 176 v18 M84 176 v18 M89 176 v18 M71 190 l22 -10"/></g><g transform="translate(124 140) scale(2.0)">
 <g stroke="#fb70a9" stroke-width="2.5" stroke-linecap="round" fill="none">
 <path d="M-10 -8 l-9 -4 M-11 0 l-10 2 M-9 8 l-8 6 M10 -8 l9 -4 M11 0 l10 2 M9 8 l8 6 M-3 -21 l-4 -8 M3 -21 l4 -8"/></g>
