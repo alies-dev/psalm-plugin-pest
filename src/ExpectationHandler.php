@@ -170,7 +170,6 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         // The event carries the name lowercased only: a wrong-case call is accepted here, as PHP itself would.
         foreach (\array_keys(CustomExpectations::visibleFrom($source->getCodebase(), $source->getFilePath())) as $name) {
-            // A numeric name is an integer key.
             if (\strtolower((string) $name) === $event->getMethodNameLowercase()) {
                 return true;
             }

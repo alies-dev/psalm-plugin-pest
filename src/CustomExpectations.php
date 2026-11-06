@@ -29,13 +29,18 @@ use Psalm\Storage\FunctionStorage;
  */
 final class CustomExpectations
 {
-    /** @var array<string, array{0: string, 1: array<string, string|null>}> content hash and closure id per name, per file */
+    /** @var array<string, array{0: string, 1: array<array-key, string|null>}> content hash and closure id per name, per file */
     private static array $parsed = [];
 
-    /** @return array<string, FunctionStorage|null> the closure's storage per expectation name visible from `$file` */
+    /** @return array<array-key, FunctionStorage|null> the closure's storage per expectation name (a numeric name is an integer key) visible from `$file` */
     public static function visibleFrom(Codebase $codebase, string $file): array
     {
-        $files = [...TestCaseResolver::bootFilesOf(BoundTestCase::testsDir($codebase), $file), $file];
+        $files = TestCaseResolver::bootFilesOf(BoundTestCase::testsDir($codebase), $file);
+        // A test file runs after every boot file; a boot file keeps its place in Pest's order.
+        if (!\in_array($file, $files, true)) {
+            $files[] = $file;
+        }
+
         $visible = [];
         foreach ($files as $path) {
             if (!$codebase->file_storage_provider->has($path)) {
@@ -52,7 +57,7 @@ final class CustomExpectations
         return $visible;
     }
 
-    /** @return array<string, string|null> closure id (null: not a closure literal) per name */
+    /** @return array<array-key, string|null> closure id (null: not a closure literal) per name */
     private static function declaredIn(string $path, string $contents): array
     {
         $hash = \md5($contents);
