@@ -23,6 +23,7 @@ final class Plugin implements PluginEntryPointInterface
         DescribeCallHandler::class,
         CurrentTestHandler::class,
         BootFileFunctionsHandler::class,
+        CustomExpectations::class,
         BeforeEachPropertiesHandler::class,
         ExpectNarrowingHandler::class,
         DescribeHookHandler::class,

@@ -168,14 +168,21 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             return null;
         }
 
-        // The event carries the name lowercased only: a wrong-case call is accepted here, as PHP itself would.
-        foreach (\array_keys(CustomExpectations::visibleFrom($source->getCodebase(), $source->getFilePath())) as $name) {
-            if (\strtolower((string) $name) === $event->getMethodNameLowercase()) {
-                return true;
+        // Pest's own assertions first: Psalm asks this provider before it looks a method up, on every call.
+        $codebase = $source->getCodebase();
+        $method = $event->getMethodNameLowercase();
+        foreach ([$event->getFqClasslikeName(), PestApi::EXPECTATION, PestApi::MIXIN_EXPECTATION] as $class) {
+            if ($codebase->classlike_storage_provider->has($class)) {
+                $storage = $codebase->classlike_storage_provider->get($class);
+                if (isset($storage->declaring_method_ids[$method]) || isset($storage->pseudo_methods[$method])) {
+                    return null;
+                }
             }
         }
 
-        return null;
+        // Only a gate, as the event carries the name lowercased: the return type provider matches the exact case, as
+        // Pest's table does, and reports a wrong-case call.
+        return CustomExpectations::isVisibleLowercase($codebase, $source->getFilePath(), $method) ? true : null;
     }
 
     #[\Override]
