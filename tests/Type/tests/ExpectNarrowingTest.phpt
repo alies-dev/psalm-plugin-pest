@@ -12,6 +12,13 @@ namespace PestExpectNarrowingFixture {
 
         public function method(): void {}
 
+        public function clear(): string
+        {
+            $this->prop = null;
+
+            return '';
+        }
+
         public function size(): int
         {
             return 0;
@@ -77,6 +84,14 @@ namespace PestExpectNarrowingFixture {
     {
         expect($holder->prop)->toBeString()->and($holder->prop = null)->toBeNull();
         /** @psalm-check-type-exact $holder->prop = null */
+        echo seen($holder->prop);
+    }
+
+    // The argument runs after Pest captured the subject, and it may change the property.
+    function propertyMutatedByArgument(Holder $holder): void
+    {
+        expect($holder->prop)->toBeString($holder->clear());
+        /** @psalm-check-type-exact $holder->prop = string|null */
         echo seen($holder->prop);
     }
 

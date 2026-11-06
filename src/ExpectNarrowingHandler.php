@@ -53,7 +53,8 @@ use Psalm\Type\Union;
  * as coming from a docblock, so a later contradicting `if` is a DocblockTypeContradiction. An assertion that
  * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime ({@see ExpectationHandler}
  * reports it). The subject is a plain variable or a property path (`$a->b`, `$this->prop`): Psalm tracks both in
- * scope and a narrowed path is treated alike (a write drops it; a method call does not, as after Psalm's own `assert()`).
+ * scope and a narrowed path is treated alike (a write drops it; a method call does not, as after Psalm's own `assert()`). A property path is left alone when an
+ * argument in the chain calls something: it runs after Pest captured the subject and may rewrite the property.
  */
 final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
 {
@@ -100,7 +101,13 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         $subject = self::expectSubject($root, $source, $event->getCodebase());
         if ($subject !== null) {
             $context = $event->getContext();
-            $assertions = \array_intersect_key(self::collect($subject, \array_reverse($steps), $source), $context->vars_in_scope);
+            $assertions = self::collect($subject, \array_reverse($steps), $source);
+            if (self::callsInArguments($steps)) {
+                // The call runs after Pest captured the subject and may rewrite a property, which Psalm then resets.
+                $assertions = \array_filter($assertions, static fn(string $id): bool => !\str_contains($id, '->'), \ARRAY_FILTER_USE_KEY);
+            }
+
+            $assertions = \array_intersect_key($assertions, $context->vars_in_scope);
             [$context->vars_in_scope, $context->references_in_scope] = self::reconcile(
                 $assertions,
                 $context->vars_in_scope,
@@ -123,6 +130,24 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
                 || $node instanceof Expr\AssignRef || $node instanceof Expr\PreInc || $node instanceof Expr\PostInc
                 || $node instanceof Expr\PreDec || $node instanceof Expr\PostDec,
         ) instanceof Node;
+    }
+
+    /** @param list<MethodCall|PropertyFetch> $steps */
+    private static function callsInArguments(array $steps): bool
+    {
+        foreach ($steps as $step) {
+            if (!$step instanceof MethodCall) {
+                continue;
+            }
+
+            foreach ($step->args as $arg) {
+                if ((new NodeFinder())->findFirst($arg, static fn(Node $node): bool => $node instanceof Expr\CallLike) instanceof Node) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
