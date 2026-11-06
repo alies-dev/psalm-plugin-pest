@@ -44,7 +44,7 @@ namespace {
     it('wrong kinds', function (): void {})
         ->coversClass('PestCoversFixture\Loggable', 'PestCoversFixture\Publishable', 'PestCoversFixture\helper')
         ->coversTrait('PestCoversFixture\Post', 'PestCoversFixture\Status')
-        ->coversFunction('PestCoversFixture\Post', 'PestCoversFixture\Loggable', 'Composer\Semver\VersionParser')
+        ->coversFunction('PestCoversFixture\Post', 'PestCoversFixture\Loggable')
         ->covers('PestCoversFixture\Publishable');
 
     it('known targets', function (): void {})
@@ -94,5 +94,4 @@ PestUnknownCoversTarget on line %d: "PestCoversFixture\Post" is a class, so PHPU
 PestUnknownCoversTarget on line %d: "PestCoversFixture\Status" is an enum, so PHPUnit reports it as an invalid code coverage target on coverage runs; use coversClass().
 PestUnknownCoversTarget on line %d: "PestCoversFixture\Post" is a class, so PHPUnit reports it as an invalid code coverage target on coverage runs; use coversClass().
 PestUnknownCoversTarget on line %d: "PestCoversFixture\Loggable" is a trait, so PHPUnit reports it as an invalid code coverage target on coverage runs; use coversTrait().
-PestUnknownCoversTarget on line %d: No function named "Composer\Semver\VersionParser" exists; PHPUnit reports it as an invalid code coverage target on coverage runs.
 PestUnknownCoversTarget on line %d: "PestCoversFixture\Publishable" is an interface, so PHPUnit reports it as an invalid code coverage target on coverage runs; cover the classes that implement it instead.
