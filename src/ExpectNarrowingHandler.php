@@ -15,7 +15,12 @@ use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
+use Psalm\CodeLocation;
+use Psalm\Context;
+use Psalm\Internal\Analyzer\FunctionLikeAnalyzer;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Analyzer\TraitAnalyzer;
+use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\StatementsSource;
@@ -97,6 +102,7 @@ final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
                 $context->inside_loop,
                 $source,
                 $event->getCodebase(),
+                $context,
             );
         }
 
@@ -289,32 +295,63 @@ final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
         bool $insideLoop,
         StatementsAnalyzer $source,
         Codebase $codebase,
+        Context $context,
     ): array {
-        [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source);
+        $changedVarIds = [];
+        [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source, $changedVarIds);
 
         foreach (\array_keys($assertions) as $varId) {
             $narrowed = $reconciled[$varId] ?? null;
 
             // An impossible assertion keeps the type the code had: `never` would only breed noise.
-            $reconciled[$varId] = self::impossible($narrowed, $vars[$varId], $codebase)
-                ? $vars[$varId]
-                : $narrowed->setFromDocblock(true);
+            if (self::impossible($narrowed, $vars[$varId], $codebase)) {
+                $reconciled[$varId] = $vars[$varId];
+
+                continue;
+            }
+
+            $reconciled[$varId] = $narrowed->setFromDocblock(true);
+            if (isset($changedVarIds[$varId]) && $vars[$varId]->hasMixed()) {
+                self::forgetMixedAssignment($varId, $source, $codebase, $context);
+            }
         }
 
         return [$reconciled, $references];
     }
 
     /**
+     * A mixed variable the assertion gave a type is no longer an untyped assignment, as after `@psalm-assert`
+     * (Psalm's `CallAnalyzer::applyAssertionsToContext()`): the MixedAssignment of its first appearance goes away.
+     */
+    private static function forgetMixedAssignment(string $varId, StatementsAnalyzer $source, Codebase $codebase, Context $context): void
+    {
+        $firstAppearance = $source->getFirstAppearance($varId);
+        if (!$firstAppearance instanceof CodeLocation) {
+            return;
+        }
+
+        $parent = $source->getSource();
+        if (
+            !$context->collect_initializations && !$context->collect_mutations
+            && $source->getFilePath() === $source->getRootFilePath()
+            && (!$parent instanceof FunctionLikeAnalyzer || !$parent->getSource() instanceof TraitAnalyzer)
+        ) {
+            $codebase->analyzer->decrementMixedCount($source->getFilePath());
+        }
+
+        IssueBuffer::remove($source->getFilePath(), 'MixedAssignment', $firstAppearance->raw_file_start);
+    }
+
+    /**
      * @param array<string, list<list<Assertion>>> $assertions
      * @param array<string, Union> $vars
      * @param array<string, string> $references
+     * @param array<string, bool> $changedVarIds
      *
      * @return array{array<string, Union>, array<string, string>}
      */
-    private static function run(array $assertions, array $vars, array $references, bool $insideLoop, StatementsAnalyzer $source): array
+    private static function run(array $assertions, array $vars, array $references, bool $insideLoop, StatementsAnalyzer $source, array &$changedVarIds = []): array
     {
-        $changedVarIds = [];
-
         return Reconciler::reconcileKeyedTypes($assertions, [], $vars, $references, $changedVarIds, [], $source, [], $insideLoop);
     }
 
