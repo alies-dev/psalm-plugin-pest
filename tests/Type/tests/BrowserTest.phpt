@@ -38,6 +38,16 @@ namespace Pest\Browser\Api {
             return $this;
         }
 
+        public function check(string $field, ?string $value = null): self
+        {
+            return $this;
+        }
+
+        public function press(string $button): self
+        {
+            return $this;
+        }
+
         public function assertSee(string|int|float $text): Webpage
         {
             return $this;
@@ -150,6 +160,18 @@ namespace {
     function takesWebpage(\Pest\Browser\Api\Webpage $page): void
     {
         $page->assertSee('x');
+    }
+
+    // The receiver is a union of both wrappers after the branch: the result is still the AwaitableWebpage.
+    function login(bool $remember): \Pest\Browser\Api\AwaitableWebpage
+    {
+        $page = visit('/login');
+
+        if ($remember) {
+            $page = $page->check('remember');
+        }
+
+        return $page->press('Log in')->assertSee('Dashboard');
     }
 
     takesAwaitable(visit('/')->click('Login'));

@@ -10,6 +10,7 @@ use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Union;
 
 /**
@@ -65,18 +66,34 @@ final class BrowserHandler implements AfterCodebasePopulatedInterface, AfterExpr
 
         // Through the interface: the analyzer's own accessor is @internal.
         $nodeTypes = $event->getStatementsSource()->getNodeTypeProvider();
-        $receiver = ExpectNarrowingHandler::atomic($nodeTypes->getType($expr->var));
+        $receiver = $nodeTypes->getType($expr->var);
         $result = $nodeTypes->getType($expr);
 
-        if (!$receiver instanceof TNamedObject
-            || !\in_array($receiver->value, [self::PENDING_PAGE, self::AWAITABLE_PAGE], true)
-            || !$result instanceof Union
-        ) {
+        if (!$receiver instanceof Union || !$result instanceof Union || !self::isPage($receiver)) {
             return null;
         }
 
         $nodeTypes->setType($expr, $result->replaceClassLike(self::WEBPAGE, self::AWAITABLE_PAGE));
 
         return null;
+    }
+
+    /** Every non-null part is one of the two wrappers: `$page = $page->check('x')` leaves a union of them. */
+    private static function isPage(Union $receiver): bool
+    {
+        $isPage = false;
+        foreach ($receiver->getAtomicTypes() as $atomic) {
+            if ($atomic instanceof TNull) {
+                continue;
+            }
+
+            if (!$atomic instanceof TNamedObject || !\in_array($atomic->value, [self::PENDING_PAGE, self::AWAITABLE_PAGE], true)) {
+                return false;
+            }
+
+            $isPage = true;
+        }
+
+        return $isPage;
     }
 }
