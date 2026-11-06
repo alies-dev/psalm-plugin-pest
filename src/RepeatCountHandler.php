@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use AliesDev\PsalmPluginPest\Issue\PestInvalidRepeatCount;
+use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Identifier;
+use Psalm\Codebase;
 use Psalm\CodeLocation;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
@@ -14,23 +16,23 @@ use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Type\Atomic\TIntRange;
 use Psalm\Type\Atomic\TLiteralInt;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Union;
 
 /**
- * Reports a count that is below 1 on every path passed to `repeat()` or `flaky()` on a test or a
- * `describe()` (Pest replays it on each test inside): Pest throws `InvalidArgumentException` for it while
- * loading the file. `int` and `positive-int` stay silent.
+ * Reports a count that is below 1 on every path passed to `repeat()` or `flaky()` on a test, a
+ * `describe()` or a `beforeEach()`: Pest rejects it with `InvalidArgumentException`, on the test itself or
+ * on every test the block or hook is replayed on. `int` and `positive-int` stay silent.
  *
- * Keyed on the receiver's type rather than the method hook: `describe()->repeat()` is a magic call, which
- * Psalm does not report to the method hooks, and a hook fires once per receiver alternative, so a
- * `TestCall|Other` receiver would report a count that `Other::repeat()` may accept. Every alternative
- * must be Pest's.
+ * Keyed on the receiver's type rather than the method hook: `describe()->repeat()` and
+ * `beforeEach()->repeat()` are magic calls, which Psalm does not report to the method hooks, and a hook
+ * fires once per receiver alternative, so a `TestCall|Other` receiver would report a count that
+ * `Other::repeat()` may accept. Every alternative must be Pest's.
  */
 final class RepeatCountHandler implements AfterExpressionAnalysisInterface
 {
-    /** Method id => parameter name. */
-    private const METHODS = ['repeat' => 'times', 'flaky' => 'tries'];
+    private const METHODS = ['repeat', 'flaky'];
 
-    private const RECEIVERS = [PestApi::TEST_CALL, PestApi::DESCRIBE_CALL];
+    private const RECEIVERS = [PestApi::TEST_CALL, PestApi::DESCRIBE_CALL, PestApi::BEFORE_EACH_CALL];
 
     #[\Override]
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
@@ -41,39 +43,57 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
         }
 
         $name = \strtolower($call->name->name);
-        $param = self::METHODS[$name] ?? null;
-        $source = $event->getStatementsSource();
-        $nodeTypes = $source->getNodeTypeProvider();
-        $receiver = $param === null ? null : $nodeTypes->getType($call->var);
-        if (!$receiver instanceof \Psalm\Type\Union || !self::isPestReceiver($receiver)) {
+        if (!\in_array($name, self::METHODS, true)) {
             return null;
         }
 
-        foreach ($call->getArgs() as $index => $arg) {
-            if ($arg->unpack || ($arg->name === null ? $index !== 0 : $arg->name->name !== $param)) {
-                continue;
-            }
-
-            $type = $nodeTypes->getType($arg->value);
-            if (!$type instanceof \Psalm\Type\Union || !self::isBelowOne($type)) {
-                return null;
-            }
-
-            IssueBuffer::maybeAdd(
-                new PestInvalidRepeatCount(
-                    \sprintf('Pest throws while loading the file when %s() receives %s: the count must be greater than 0.', $name, $type->getId()),
-                    new CodeLocation($source, $arg->value),
-                ),
-                $source->getSuppressedIssues(),
-            );
-
+        $source = $event->getStatementsSource();
+        $nodeTypes = $source->getNodeTypeProvider();
+        $receiver = $nodeTypes->getType($call->var);
+        if (!$receiver instanceof Union || !self::isPestReceiver($receiver)) {
             return null;
+        }
+
+        $count = self::countArg($call, self::countParam($event->getCodebase(), $name));
+        $type = $count === null ? null : $nodeTypes->getType($count->value);
+        if ($count === null || !$type instanceof Union || !self::isBelowOne($type)) {
+            return null;
+        }
+
+        IssueBuffer::maybeAdd(
+            new PestInvalidRepeatCount(
+                \sprintf('Pest rejects a count below 1, but %s() receives %s.', $name, $type->getId()),
+                new CodeLocation($source, $count->value),
+            ),
+            $source->getSuppressedIssues(),
+        );
+
+        return null;
+    }
+
+    /**
+     * Name of `TestCall`'s count parameter, read from the stubs so a rename in Pest is picked up.
+     *
+     * @param lowercase-string $name
+     */
+    private static function countParam(Codebase $codebase, string $name): ?string
+    {
+        return BoundTestCase::storage($codebase, PestApi::TEST_CALL)?->methods[$name]?->params[0]?->name;
+    }
+
+    /** The argument bound to the count: the first positional one, or the one named after the parameter. */
+    private static function countArg(MethodCall $call, ?string $param): ?Arg
+    {
+        foreach ($call->getArgs() as $index => $arg) {
+            if (!$arg->unpack && ($arg->name === null ? $index === 0 : $arg->name->name === $param)) {
+                return $arg;
+            }
         }
 
         return null;
     }
 
-    private static function isPestReceiver(\Psalm\Type\Union $receiver): bool
+    private static function isPestReceiver(Union $receiver): bool
     {
         foreach ($receiver->getAtomicTypes() as $atomic) {
             if (!$atomic instanceof TNamedObject || !\in_array($atomic->value, self::RECEIVERS, true)) {
@@ -84,7 +104,7 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
         return true;
     }
 
-    private static function isBelowOne(\Psalm\Type\Union $type): bool
+    private static function isBelowOne(Union $type): bool
     {
         foreach ($type->getAtomicTypes() as $atomic) {
             $isBelowOne = match (true) {
