@@ -18,6 +18,7 @@ final class Plugin implements PluginEntryPointInterface
     private const HANDLERS = [
         InternalDslHandler::class,
         ExpectationHandler::class,
+        BrowserHandler::class,
         ClosureThisHandler::class,
         HigherOrderTestHandler::class,
         DescribeCallHandler::class,
@@ -29,6 +30,9 @@ final class Plugin implements PluginEntryPointInterface
         DescribeHookHandler::class,
         StaticTestClosureHandler::class,
         DuplicateTestDescriptionHandler::class,
+        CoversTargetHandler::class,
+        InvalidGroupNameHandler::class,
+        RepeatCountHandler::class,
     ];
 
     #[\Override]

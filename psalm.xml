@@ -20,10 +20,12 @@
             <errorLevel type="suppress">
                 <referencedMethod name="Psalm\Internal\Analyzer\ClosureAnalyzer::getClosureId" />
                 <referencedMethod name="Psalm\Internal\Analyzer\StatementsAnalyzer::getNodeTypeProvider" />
+                <referencedMethod name="Psalm\Internal\Codebase\ClassLikes::traitExists" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::functionExists" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::getFullyQualifiedFunctionNameFromString" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::getStorage" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::hasStubbedFunction" />
+                <referencedMethod name="Psalm\Internal\Codebase\InternalCallMapHandler::inCallMap" />
                 <referencedMethod name="Psalm\Internal\MethodIdentifier::__construct" />
                 <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::get" />
                 <referencedMethod name="Psalm\Internal\Provider\ClassLikeStorageProvider::has" />
@@ -60,6 +62,7 @@
         <InternalClass>
             <errorLevel type="suppress">
                 <referencedClass name="Psalm\Internal\Analyzer\ClassLikeAnalyzer" />
+                <referencedClass name="Psalm\Internal\Codebase\InternalCallMapHandler" />
                 <referencedClass name="Psalm\Internal\MethodIdentifier" />
             </errorLevel>
         </InternalClass>
