@@ -29,6 +29,7 @@ final class Plugin implements PluginEntryPointInterface
         DescribeHookHandler::class,
         StaticTestClosureHandler::class,
         DuplicateTestDescriptionHandler::class,
+        InvalidGroupNameHandler::class,
         RepeatCountHandler::class,
     ];
 
