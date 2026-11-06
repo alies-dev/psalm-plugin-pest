@@ -30,6 +30,7 @@ use Psalm\Type\Atomic\TNamedObject;
 use Psalm\Type\Atomic\TNever;
 use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Atomic\TObject;
+use Psalm\Type\Atomic\TString;
 use Psalm\Type\Atomic\TTemplateParam;
 use Psalm\Type\Union;
 
@@ -87,6 +88,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         self::returnOuterExpectation($assertions);
         self::carryValueTypeIntoProxyProperties($expectation);
         self::typeIterationCallbacks($expectation);
+        self::acceptTypedExceptionClosure($assertions);
 
         foreach (self::PROXY_RESULTS as $proxy => $result) {
             self::forwardAssertions($storages[$proxy], $result, $assertions, $expectation);
@@ -121,6 +123,24 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         \assert($atomics !== []);
         $sequence->type = new Union($atomics);
+    }
+
+    /**
+     * `toThrow()` reads the exception class off the closure's own parameter, so `fn (RuntimeException $e) => ...` is
+     * the documented form. Pest declares `Closure(Throwable): mixed`, which by parameter contravariance rejects
+     * every closure that names a subclass (Pest 5's `Closure(T)` template does not resolve here either). Pest
+     * branches on `instanceof Closure` (any other callable is a class name), so a bare `Closure` is accepted
+     * and the exception class stays the closure's own parameter. A closure Pest rejects at runtime (parameter
+     * count other than one, or a union, intersection or untyped parameter) is therefore not reported.
+     */
+    private static function acceptTypedExceptionClosure(ClassLikeStorage $assertions): void
+    {
+        $parameter = ($assertions->methods['tothrow'] ?? null)?->params[0] ?? null;
+        if ($parameter === null) {
+            return;
+        }
+
+        $parameter->type = new Union([new TNamedObject(\Closure::class), new TString(), new TNamedObject(\Throwable::class)]);
     }
 
     #[\Override]
