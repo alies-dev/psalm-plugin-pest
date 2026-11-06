@@ -51,4 +51,4 @@ namespace {
 ?>
 --EXPECTF--
 InvalidScope on line %d: Invalid reference to $this in a non-class context
-InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure%S, but 'not a closure' provided
+InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure[impure], but 'not a closure' provided
