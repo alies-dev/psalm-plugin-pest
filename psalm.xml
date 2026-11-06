@@ -19,7 +19,12 @@
         <InternalMethod>
             <errorLevel type="suppress">
                 <referencedMethod name="Psalm\Internal\Analyzer\ClosureAnalyzer::getClosureId" />
+                <referencedMethod name="Psalm\Internal\Analyzer\SourceAnalyzer::getFilePath" />
+                <referencedMethod name="Psalm\Internal\Analyzer\SourceAnalyzer::getRootFilePath" />
+                <referencedMethod name="Psalm\Internal\Analyzer\SourceAnalyzer::getSource" />
+                <referencedMethod name="Psalm\Internal\Analyzer\StatementsAnalyzer::getFirstAppearance" />
                 <referencedMethod name="Psalm\Internal\Analyzer\StatementsAnalyzer::getNodeTypeProvider" />
+                <referencedMethod name="Psalm\Internal\Codebase\Analyzer::decrementMixedCount" />
                 <referencedMethod name="Psalm\Internal\Codebase\ClassLikes::traitExists" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::functionExists" />
                 <referencedMethod name="Psalm\Internal\Codebase\Functions::getFullyQualifiedFunctionNameFromString" />
