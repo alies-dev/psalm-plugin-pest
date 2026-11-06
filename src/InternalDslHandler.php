@@ -42,6 +42,8 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
         'Pest\Plugins\Tia\Configuration',
         'Pest\Arch\Contracts\ArchExpectation',
         'Pest\Arch\PendingArchExpectation',
+        'Pest\Preset',
+        'Pest\ArchPresets\AbstractPreset',
     ];
 
     /**
@@ -50,6 +52,8 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
     private const OWN_INTERNAL_MEMBERS = [
         'Pest\Arch\Contracts\ArchExpectation' => ['mergeexcludecallbacks', 'excludecallbacks'],
         'Pest\Configuration\Project' => ['assignees', 'issues', 'prs'],
+        'Pest\Preset' => ['custom'],
+        'Pest\ArchPresets\AbstractPreset' => ['execute'],
     ];
 
     #[\Override]
