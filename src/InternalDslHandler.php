@@ -36,6 +36,7 @@ final class InternalDslHandler implements AfterCodebasePopulatedInterface
         'Pest\PendingCalls\DescribeCall',
         'Pest\PendingCalls\UsesCall',
         'Pest\Configuration',
+        'Pest\Browser\Configuration',
         PestApi::HIGHER_ORDER_TAP_PROXY,
         'Pest\Configuration\Printer',
         'Pest\Configuration\Project',
