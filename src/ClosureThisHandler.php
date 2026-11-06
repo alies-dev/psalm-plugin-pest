@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AliesDev\PsalmPluginPest;
 
 use PhpParser\Node\Arg;
+use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
@@ -14,6 +15,7 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use Psalm\Codebase;
+use Psalm\Internal\Codebase\Functions;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
@@ -82,6 +84,8 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                 }
             }
         }
+
+        self::bindDatasetFunction($functions);
     }
 
     /** @psalm-pure */
@@ -116,10 +120,64 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
 
         $type = BoundTestCase::thisTypeOf($codebase, $chain);
         $file = $source->getFilePath();
+        $traits = BoundTestCase::traitsOf($codebase, $chain);
+        if (!$type instanceof Union) {
+            $type = BoundTestCase::thisType($codebase, $file);
+            $traits = BoundTestCase::traits($codebase, $file);
+        }
 
-        return $type instanceof \Psalm\Type\Union
-            ? self::bind($codebase, $params, 0, $type, BoundTestCase::traitsOf($codebase, $chain))
-            : self::bind($codebase, $params, 0, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
+        $bound = self::bind($codebase, $params, 0, $type, $traits);
+        if ($class === PestApi::TEST_CALL && $method === 'with' && $type instanceof Union) {
+            self::bindRows($type, \array_map(static fn(Arg $arg): Expr => $arg->value, $event->getCallArgs() ?? []));
+        }
+
+        return $bound;
+    }
+
+    /**
+     * `dataset('x', [...])` carries no closure tag, so its rows are bound by this call-site provider alone.
+     */
+    private static function bindDatasetFunction(Functions $functions): void
+    {
+        if (!$functions->hasStubbedFunction('dataset')) {
+            return;
+        }
+
+        $params = $functions->getStorage(null, 'dataset')->params;
+        if (\array_map(static fn(FunctionLikeParameter $param): string => $param->name, $params) !== ['name', 'dataset']) {
+            return;
+        }
+
+        $functions->params_provider->registerClosure(
+            'dataset',
+            static function (FunctionParamsProviderEvent $event) use ($params): array {
+                $source = $event->getStatementsSource();
+                $codebase = $source->getCodebase();
+                $file = $source->getFilePath();
+                $type = BoundTestCase::thisType($codebase, $file);
+                $dataset = $event->getCallArgs()[1] ?? null;
+                if ($type instanceof Union && $dataset instanceof Arg) {
+                    // Only for the side effects of binding; the closure parameter itself stays unbound.
+                    self::bind($codebase, $params, 1, $type, BoundTestCase::traits($codebase, $file));
+                    self::bindRows($type, [$dataset->value]);
+                }
+
+                return $params;
+            },
+        );
+    }
+
+    /**
+     * Psalm reads a closure's bound `$this` from this node attribute, which it sets only for a closure
+     * that is itself an argument. Rows inside an array literal are never arguments, so they get it here.
+     *
+     * @param list<Expr> $datasets
+     */
+    private static function bindRows(Union $type, array $datasets): void
+    {
+        foreach (DatasetRows::closures($datasets) as $closure) {
+            $closure->setAttribute('psalm-closure-this-type', $type);
+        }
     }
 
     #[\Override]
