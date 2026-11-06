@@ -8,7 +8,10 @@ namespace PestExpectNarrowingForgetfulFixture;
 final class Holder
 {
     public ?string $prop = null;
+    public int $int = 0;
 }
+
+final class Other {}
 
 /** @psalm-pure */
 function seen(mixed $_value): int
@@ -33,6 +36,20 @@ function impossible(Holder $holder): void
     /** @psalm-check-type-exact $holder->prop = string|null */
     echo seen($holder->prop);
 }
+
+// An assertion that cannot hold keeps the declared type, as it does for a path still in scope.
+function impossibleDeclared(Holder $holder): void
+{
+    expect($holder->int)->toBeFloat();
+    /** @psalm-check-type-exact $holder->int = int */
+    echo seen($holder->int);
+
+    expect($holder->prop)->toBeInstanceOf(Other::class);
+    /** @psalm-check-type-exact $holder->prop = string|null */
+    echo seen($holder->prop);
+}
 ?>
 --EXPECTF--
-PestImpossibleExpectation on line 32: Pest's toBeInt() is a strict type check that always fails for null|string; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line 35: Pest's toBeInt() is a strict type check that always fails for null|string; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line 43: Pest's toBeFloat() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line 47: Pest's toBeInstanceOf() is a strict type check that always fails for null|string; assert the type the value has or remove the assertion.

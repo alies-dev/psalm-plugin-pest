@@ -21,6 +21,7 @@ use Psalm\Plugin\EventHandler\AfterStatementAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterStatementAnalysisEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\Assertion;
+use Psalm\Storage\Assertion\Any;
 use Psalm\Storage\Assertion\IsNotType;
 use Psalm\Storage\Assertion\IsType;
 use Psalm\Type;
@@ -340,22 +341,20 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
         StatementsAnalyzer $source,
         Codebase $codebase,
     ): array {
+        // A property path Psalm forgot gets its declared type back first, so the assertion meets the type the code had.
+        $forgotten = \array_map(static fn(array $_assertions): array => [[new Any()]], \array_diff_key($assertions, $vars));
+        $vars += \array_intersect_key(self::run($forgotten, $vars, $references, $insideLoop, $source)[0], $forgotten);
+        $assertions = \array_intersect_key($assertions, $vars);
+
         [$reconciled, $references] = self::run($assertions, $vars, $references, $insideLoop, $source);
 
         foreach (\array_keys($assertions) as $varId) {
             $narrowed = $reconciled[$varId] ?? null;
-            $old = $vars[$varId] ?? null;
 
             // An impossible assertion keeps the type the code had: `never` would only breed noise.
-            if ($old === null) {
-                if ($narrowed === null || $narrowed->isNever() || $narrowed->failed_reconciliation) {
-                    unset($reconciled[$varId]);
-                } else {
-                    $reconciled[$varId] = $narrowed->setFromDocblock(true);
-                }
-            } else {
-                $reconciled[$varId] = self::impossible($narrowed, $old, $codebase) ? $old : $narrowed->setFromDocblock(true);
-            }
+            $reconciled[$varId] = self::impossible($narrowed, $vars[$varId], $codebase)
+                ? $vars[$varId]
+                : $narrowed->setFromDocblock(true);
         }
 
         return [$reconciled, $references];
