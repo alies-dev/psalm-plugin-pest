@@ -15,8 +15,9 @@ use Symfony\Component\Process\Process;
  * files outside any `tests/` tree, so a `tests/Pest.php` is only reachable through a fixture
  * project. Its `Pest.php` (plus a file it requires), `Helpers.php` and `Helpers/Nested/Deep.php`
  * declare functions that a Feature test calls (clean, and its `@psalm-check-type-exact` assertions
- * hold: the declared return types come along). The only findings are a function nobody declares and
- * a call to a boot file function from `src/`, which is outside the tests directory.
+ * hold: the declared return types come along). Boot files see each other's functions from inside their
+ * function bodies (run after boot). The only findings are a function nobody declares and a call to a
+ * boot file function from `src/`, which is outside the tests directory.
  */
 #[CoversClass(BootFileFunctionsHandler::class)]
 final class BootFileFunctionsEmissionTest extends TestCase
