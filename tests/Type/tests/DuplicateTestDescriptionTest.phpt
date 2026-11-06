@@ -12,45 +12,45 @@ namespace PestDuplicateFixture {
 }
 
 namespace {
-    it('logs in', function (): void {});
-    it('logs in', function (): void {})->group('auth')->skip();
-    test('logs in', function (): void {});
-    test('logs in', function (): void {});
+    it('logs in', fn () => null);
+    it('logs in', fn () => null)->group('auth')->skip();
+    test('logs in', fn () => null);
+    test('logs in', fn () => null);
     todo('logs in');
-    test('it logs in', function (): void {}); // same key as it('logs in')
+    test('it logs in', fn () => null); // same key as it('logs in')
 
-    test('plain', function (): void {});
+    test('plain', fn () => null);
     todo('plain');
 
     describe('auth', function (): void {
-        it('logs in', function (): void {});
-        it('logs in', function (): void {});
-        it('logs out', function (): void {});
+        it('logs in', fn () => null);
+        it('logs in', fn () => null);
+        it('logs out', fn () => null);
 
         describe('nested', function (): void {
-            it('logs in', function (): void {});
+            it('logs in', fn () => null);
         });
     });
 
     describe('auth', function (): void {
-        it('logs out', function (): void {});
+        it('logs out', fn () => null);
     });
 
     describe('other', function (): void {
-        it('logs in', function (): void {});
+        it('logs in', fn () => null);
     });
 
     $dynamic = 'dynamic';
-    it($dynamic, function (): void {});
-    it($dynamic, function (): void {});
-    it("interpolated {$dynamic}", function (): void {});
-    it("interpolated {$dynamic}", function (): void {});
+    it($dynamic, fn () => null);
+    it($dynamic, fn () => null);
+    it("interpolated {$dynamic}", fn () => null);
+    it("interpolated {$dynamic}", fn () => null);
 
     foreach ([1, 2] as $_) {
-        it('in a loop', function (): void {});
+        it('in a loop', fn () => null);
     }
 
-    it('in a loop', function (): void {});
+    it('in a loop', fn () => null);
 }
 ?>
 --EXPECTF--

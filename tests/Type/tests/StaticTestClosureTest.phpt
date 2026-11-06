@@ -17,14 +17,12 @@ namespace {
         expect(true)->toBeTrue();
     });
     it('static arrow', static fn () => expect(true)->toBeTrue());
-    it('named argument', closure: static function (): void {
-    });
+    it('named argument', closure: static fn () => null);
     beforeEach(static function (): void {
     });
     afterEach(static fn () => null);
 
-    test('plain', function (): void {
-    });
+    test('plain', fn () => null);
     it('plain arrow', fn () => expect(true)->toBeTrue());
     test('static outside the closure argument', function (): void {
         $helper = static fn (): int => 1;
