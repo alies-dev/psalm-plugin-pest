@@ -25,11 +25,15 @@ use Psalm\Type\Union;
  * records the call and returns the `TestCall`; Pest later replays the recorded calls on the file's
  * bound TestCase (or its bound traits, exposed on it), each on the previous call's non-null result.
  * `->expect()` / `->and()` start an `Expectation` of `mixed`, and bind a closure value to the TestCase
- * ({@see ClosureThisHandler}). Other names keep Psalm's `UndefinedMagicMethod`.
+ * ({@see ClosureThisHandler}). Pest's generated test class also uses `Testable`, so `->preset()` forwards to it
+ * whatever the TestCase. Other names keep Psalm's `UndefinedMagicMethod`.
  */
 final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
 {
     private const EXPECTATION_METHODS = ['expect', 'and'];
+
+    /** Public `Testable` methods Pest's generated test class adds to every TestCase; the other ones are Pest's lifecycle hooks. */
+    private const TESTABLE_METHODS = ['preset'];
 
     /** @var array<lowercase-string, ?string> `Class::method` the latest call of each name forwards to; the return provider runs right before the params one. */
     private static array $forwarded = [];
@@ -132,8 +136,16 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
             return PestApi::HIGHER_ORDER_CALLABLES . '::expect';
         }
 
+        // The generated class uses `Testable` over the TestCase, and a trait's method overrides an inherited one.
+        $classes = \in_array($name, self::TESTABLE_METHODS, true) ? [PestApi::TESTABLE] : [];
         foreach ($target?->getAtomicTypes() ?? [] as $type) {
-            $declaring = $type instanceof TNamedObject ? BoundTestCase::storage($codebase, $type->value)?->declaring_method_ids[$name] ?? null : null;
+            if ($type instanceof TNamedObject) {
+                $classes[] = $type->value;
+            }
+        }
+
+        foreach ($classes as $class) {
+            $declaring = BoundTestCase::storage($codebase, $class)?->declaring_method_ids[$name] ?? null;
             $visibility = $declaring === null ? null : (BoundTestCase::storage($codebase, $declaring->fq_class_name)?->methods[$declaring->method_name] ?? null)?->visibility;
             if ($declaring !== null && $visibility !== null && $visibility !== ClassLikeAnalyzer::VISIBILITY_PRIVATE) {
                 return $declaring->fq_class_name . '::' . $name;

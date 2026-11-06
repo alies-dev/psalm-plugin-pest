@@ -42,6 +42,9 @@ final class PestApi
     /** `->expect()` / `->and()` on a `TestCall`: Pest replays them through this class's own `expect()`. */
     public const HIGHER_ORDER_CALLABLES = 'Pest\Support\HigherOrderCallables';
 
+    /** The trait Pest mixes into its generated test class: `->preset()` on a `TestCall` is replayed on it. */
+    public const TESTABLE = 'Pest\Concerns\Testable';
+
     /** `test()` without arguments inside a running test: forwards to the bound TestCase. */
     public const HIGHER_ORDER_TAP_PROXY = 'Pest\Support\HigherOrderTapProxy';
 }

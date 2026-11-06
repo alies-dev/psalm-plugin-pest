@@ -63,6 +63,7 @@ it('totals the cart', function () {
 | `expect($user)->name->toBe('Ada')` | `Expectation<T>` through `->not`, `->each` and member access |
 | `expect($user)->not->toBeNull()` | `$user` narrowed to non-null afterwards |
 | `pest()->printer()`, arch chains | Public API, no `InternalMethod` noise |
+| `arch()->preset()->php()` | A resolved higher order call, like the TestCase methods |
 
 ## Bugs it catches
 
@@ -83,6 +84,7 @@ Suppress any of them like a regular Psalm issue.
 * Files are parsed, never executed. A boot file with dynamic `uses()` calls disables TestCase resolution for the suite.
 * Config only chains (`pest()->tia()`, `printer()`, `presets()`, `project()`, `browser()`, `evals()`) are ignored wherever they sit, including inside a loop.
 * Custom expectations from `expect()->extend()` are still reported.
+* Custom presets (`arch()->preset()->myPreset()`, registered with `pest()->presets()->custom()`) are still reported, because Pest resolves them through `Preset::__call()`.
 * Narrowing works on plain variables, not on `$this->prop`.
 * Pest runs a higher order `expect()` / `and()` closure without the TestCase's class scope, so a protected or private TestCase member used there fails at runtime but is not reported.
 * On Psalm 6, a closure passed to a higher order `it('x')->expect()` keeps `InvalidScope`, because Psalm 6 does not ask plugins about the arguments of a magic `__call()` method. A later `->and()` closure is bound.
