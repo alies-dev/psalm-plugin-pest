@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
+use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr;
-use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\FuncCall;
@@ -16,11 +16,14 @@ use PhpParser\Node\Expr\NullsafePropertyFetch;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\NodeFinder;
 use Psalm\Codebase;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\BeforeExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\FunctionParamsProviderEvent;
 use Psalm\Plugin\EventHandler\Event\MethodParamsProviderEvent;
 use Psalm\Plugin\EventHandler\MethodParamsProviderInterface;
@@ -44,7 +47,7 @@ use Psalm\Type\Union;
  * starts at `it()` / `test()` (elsewhere its closure is just a value): {@see self::beforeExpressionAnalysis()}
  * stashes the receiver on the first argument.
  */
-final class ClosureThisHandler implements AfterCodebasePopulatedInterface, BeforeExpressionAnalysisInterface, MethodParamsProviderInterface
+final class ClosureThisHandler implements AfterCodebasePopulatedInterface, BeforeExpressionAnalysisInterface, BeforeFileAnalysisInterface, MethodParamsProviderInterface
 {
     private const FUNCTIONS = ['test', 'it', 'beforeeach', 'aftereach'];
 
@@ -60,6 +63,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
 
     /** The method name as written at the call site (the providers only see it lowercased). */
     private const WRITTEN = 'pest-written-method';
+
+    /** On the first argument of a `with()` whose rows may come after other datasets ({@see self::beforeAnalyzeFile()}). */
+    private const PREPENDED = 'pest-prepended-datasets';
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -116,7 +122,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             $file = $source->getFilePath();
             $type = self::prepare($codebase, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
             if ($type instanceof Union) {
-                self::bindRows($type, self::values($args), self::testParameterTypes($arg->getAttribute(self::RECEIVER)));
+                self::bindRows($type, self::values($args), self::rowsStartTheTest($arg, $arg->getAttribute(self::RECEIVER)) ? DatasetRows::parameterTypes(self::testCall($arg->getAttribute(self::RECEIVER))) : null);
             }
 
             return null;
@@ -153,18 +159,14 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
      * the rows are bound: the params come back unchanged, as a closure that is the whole dataset is
      * called unbound. The tests of the block are not followed, so every closure row is bound.
      *
-     * @param array<int, FunctionLikeParameter> $params the params of `TestCall::with()`
      * @param list<Arg> $args
-     * @return array<int, FunctionLikeParameter>
      */
-    public static function bindWith(Codebase $codebase, string $file, array $params, array $args): array
+    public static function bindDescribeRows(Codebase $codebase, string $file, array $args): void
     {
         $type = self::prepare($codebase, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file));
         if ($type instanceof Union) {
             self::bindRows($type, self::values($args));
         }
-
-        return $params;
     }
 
     /**
@@ -211,9 +213,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                     }
                 }
 
-                // Pest binds a shared dataset (`Datasets.php`, `Datasets/`, `Pest.php`) to the test that consumes it, not to its own file's fallback TestCase.
-                $shared = TestCaseResolver::declaresSharedDatasets(BoundTestCase::testsDir($codebase), $file);
-                if ($type instanceof Union && (!$shared || $type->getId() !== TestCaseResolver::DEFAULT_TEST_CASE) && $dataset instanceof Arg) {
+                // Pest binds a shared dataset (`Datasets.php`, `Datasets/`, `Pest.php`) to the test that consumes it. Under the
+                // fallback TestCase that is still some PHPUnit TestCase, so its members are a safe lower bound.
+                if ($type instanceof Union && $dataset instanceof Arg) {
                     $type = self::prepare($codebase, $type, BoundTestCase::traits($codebase, $file));
                     if ($type instanceof Union) {
                         self::bindRows($type, [$dataset->value]);
@@ -289,71 +291,77 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     }
 
     /**
-     * The parameter types of the test closure of a `with()` chain, as `Reflection::getFunctionArguments()`
-     * spells them, or null when the closure is not in sight or `repeat()` adds an argument to every row.
-     *
-     * @return array<string, string>|null
+     * Whether the rows of the `with()` called on `$link` with the first argument `$arg` start at the
+     * test closure's first parameter. Not when Pest puts other arguments first: an earlier `->with()`
+     * of the chain, a `describe()->with()` or `beforeEach()->with()` dataset
+     * ({@see self::beforeAnalyzeFile()}), or the iteration `repeat()` adds to every row. `repeat()` is
+     * seen only when it comes before this `with()` in the chain.
      */
-    private static function testParameterTypes(mixed $receiver): ?array
+    private static function rowsStartTheTest(Arg $arg, mixed $link): bool
     {
-        if (!$receiver instanceof Expr) {
-            return null;
+        if ($arg->getAttribute(self::PREPENDED) === true) {
+            return false;
         }
 
-        $link = $receiver;
-        while ($link instanceof MethodCall) {
-            if ($link->name instanceof Identifier && $link->name->toLowerString() === 'repeat') {
-                return null;
+        for (; $link instanceof MethodCall || $link instanceof NullsafeMethodCall; $link = $link->var) {
+            if ($link->name instanceof Identifier && \in_array($link->name->toLowerString(), ['with', 'repeat'], true)) {
+                return false;
             }
+        }
 
+        return true;
+    }
+
+    /**
+     * Tags the first argument of every `with()` whose rows may follow datasets Pest adds when the test
+     * is created (`TestCall::__construct()` replays the file's `beforeEach()` and `describe()` chains):
+     * every `with()` inside a `describe()` call, and every `with()` of the file once a `beforeEach()->with()`
+     * appears in it. The parameter types then do not tell which closure a row fills, so all are bound.
+     */
+    #[\Override]
+    public static function beforeAnalyzeFile(BeforeFileAnalysisEvent $event): void
+    {
+        $finder = new NodeFinder();
+        $stmts = $event->getStmts();
+        if ($finder->findFirst($stmts, static fn(Node $node): bool => self::isWith($node) && self::chainFunction($node) === 'beforeeach') instanceof Node) {
+            self::tagWiths($finder, $stmts);
+
+            return;
+        }
+
+        foreach ($finder->find($stmts, static fn(Node $node): bool => $node instanceof FuncCall && self::functionName($node) === 'describe') as $describe) {
+            self::tagWiths($finder, [$describe]);
+        }
+    }
+
+    /** @param array<Node> $nodes */
+    private static function tagWiths(NodeFinder $finder, array $nodes): void
+    {
+        foreach ($finder->find($nodes, self::isWith(...)) as $with) {
+            if ($with instanceof MethodCall && ($with->args[0] ?? null) instanceof Arg) {
+                $with->args[0]->setAttribute(self::PREPENDED, true);
+            }
+        }
+    }
+
+    private static function isWith(Node $node): bool
+    {
+        return $node instanceof MethodCall && $node->name instanceof Identifier && $node->name->toLowerString() === 'with';
+    }
+
+    /** The lowercased name of the function a method chain starts at, if it starts at one. */
+    private static function chainFunction(Node $link): ?string
+    {
+        while ($link instanceof MethodCall || $link instanceof NullsafeMethodCall) {
             $link = $link->var;
         }
 
-        $closure = null;
-        foreach (self::testCall($receiver)?->args ?? [] as $position => $arg) {
-            $name = $arg instanceof Arg ? $arg->name?->name : '';
-            if ($arg instanceof Arg && ($name === 'closure' || ($name === null && $position === 1))) {
-                $closure = $arg->value;
-            }
-        }
-
-        if (!$closure instanceof Closure && !$closure instanceof ArrowFunction) {
-            return null;
-        }
-
-        $types = [];
-        foreach ($closure->params as $param) {
-            if (!$param->var instanceof Expr\Variable || !\is_string($param->var->name)) {
-                return null;
-            }
-
-            $types[$param->var->name] = self::typeName($param->type);
-        }
-
-        return $types;
+        return $link instanceof FuncCall ? self::functionName($link) : null;
     }
 
-    /** `ReflectionNamedType::getName()`, or the names of a union joined by `|`; an untyped parameter is `mixed`. */
-    private static function typeName(mixed $type): string
+    private static function functionName(FuncCall $call): ?string
     {
-        if ($type instanceof \PhpParser\Node\NullableType) {
-            return self::typeName($type->type);
-        }
-
-        if ($type instanceof \PhpParser\Node\UnionType) {
-            $names = \array_map(self::typeName(...), $type->types);
-            $nonNull = \array_values(\array_diff($names, ['null']));
-
-            // PHP reflects `T|null` as the named type `?T`.
-            return \count($nonNull) === 1 ? $nonNull[0] : \implode('|', $names);
-        }
-
-        return match (true) {
-            $type === null => 'mixed',
-            $type instanceof Identifier => $type->toLowerString(),
-            $type instanceof Name => \ltrim(NameResolution::resolved($type) ?? $type->toString(), '\\'),
-            default => '',
-        };
+        return $call->name instanceof Name ? \strtolower(NameResolution::resolved($call->name) ?? $call->name->toString()) : null;
     }
 
     /**

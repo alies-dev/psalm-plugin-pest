@@ -71,29 +71,6 @@ final class TestCaseResolver
         return $files !== null && self::targets([UsesParser::realpath($testsDir)], UsesParser::realpath($testFile)) ? $files : [];
     }
 
-    /** `DatasetInfo::isADatasetsFile()` / `isInsideADatasetsDirectory()`: a dataset declared here is consumed by tests of other files. */
-    public static function isSharedDatasetFile(string $testsDir, string $file): bool
-    {
-        // As found below the tests directory (a symlinked file stays there), else with both paths resolved.
-        foreach ([[$testsDir, $file], [UsesParser::realpath($testsDir), UsesParser::realpath($file)]] as [$dir, $path]) {
-            $prefix = \rtrim($dir, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR;
-            if (\str_starts_with($path, $prefix)) {
-                $relativeDirs = \explode(\DIRECTORY_SEPARATOR, \dirname(\substr($path, \strlen($prefix))));
-
-                return \basename($path) === self::DATASETS . '.php' || \in_array(self::DATASETS, $relativeDirs, true);
-            }
-        }
-
-        return false;
-    }
-
-    /** A dataset declared here is also consumed by other files: a shared dataset file, or `Pest.php` (`DatasetInfo::scope()` gives it its directory). */
-    public static function declaresSharedDatasets(string $testsDir, string $file): bool
-    {
-        return UsesParser::realpath($file) === UsesParser::realpath($testsDir . \DIRECTORY_SEPARATOR . 'Pest.php')
-            || self::isSharedDatasetFile($testsDir, $file);
-    }
-
     /**
      * @param \Closure(string): ?bool $isClass
      * @return TestCaseBinding|null
@@ -200,7 +177,8 @@ final class TestCaseResolver
                     || !\str_starts_with($entry->getFilename(), '.'),
             );
             foreach (self::phpFiles($datasets) as $file) {
-                if (self::isSharedDatasetFile($testsDir, $file)) {
+                $relativeDirs = \explode(\DIRECTORY_SEPARATOR, \dirname(\substr($file, \strlen($testsDir) + 1)));
+                if (\basename($file) === self::DATASETS . '.php' || \in_array(self::DATASETS, $relativeDirs, true)) {
                     $files[] = $file;
                 }
             }

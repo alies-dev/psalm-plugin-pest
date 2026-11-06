@@ -19,5 +19,6 @@ pest()
     })
     ->in('Feature');
 
-// Declared in the boot file: shared like a Datasets.php, so with only the fallback TestCase its rows stay unbound.
+// Declared in the boot file: shared like a Datasets.php, so its rows get the fallback TestCase,
+// which does not declare a member of a subclass.
 dataset('boot rows', ['row' => fn(): mixed => $this->bootOnly]);

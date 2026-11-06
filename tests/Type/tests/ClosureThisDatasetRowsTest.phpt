@@ -58,6 +58,17 @@ namespace {
     it('binds a typed parameter of several', function (string $_a, int $_b): void {})
         ->with([[fn (): string => $this->token, 1]]);
 
+    // An earlier with() fills the first parameters, so the rows of this one start later.
+    it('binds rows after an earlier with()', function (\Closure $_c, string $_s): void {})
+        ->with([fn () => fn () => 1])
+        ->with([fn (): string => $this->token]);
+
+    // describe()->with() rows come first, so the rows of a with() in the block start later.
+    describe('with a block dataset', function (): void {
+        it('binds rows after the block dataset', function (\Closure $_c, string $_s): void {})
+            ->with([fn (): string => $this->token]);
+    })->with([fn () => fn () => 1]);
+
     describe('in a block', function (): void {
         it('binds rows of describe()->with()', function (string $_name): void {});
     })->with(['row' => fn (): string => $this->token]);

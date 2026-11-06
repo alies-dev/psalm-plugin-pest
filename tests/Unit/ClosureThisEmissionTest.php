@@ -24,7 +24,8 @@ use Symfony\Component\Process\Process;
  * undefined property in a Feature file reports only itself, as the trait is no intersection member.
  * Dataset rows: those in a test file get its TestCase, and so do those of a shared dataset file
  * below a directory Pest.php maps, while a shared dataset under the fallback TestCase (in
- * Unit/Datasets/ or in Pest.php itself) stays unbound. Each finding names its file.
+ * Unit/Datasets/ or in Pest.php itself) is bound to that fallback: its own members are clean, a
+ * subclass member is reported on it. Each finding names its file.
  */
 #[CoversClass(ClosureThisHandler::class)]
 final class ClosureThisEmissionTest extends TestCase
@@ -55,8 +56,7 @@ final class ClosureThisEmissionTest extends TestCase
         $this->assertSame(
             [
                 'tests/Feature/Isolated.php: UndefinedThisPropertyFetch: Instance property PestClosureThisFixture\FeatureTestCase::$setupState is not defined',
-                'tests/Pest.php: InvalidScope: Invalid reference to $this in a non-class context',
-                'tests/Unit/Datasets/Rows.php: InvalidScope: Invalid reference to $this in a non-class context',
+                'tests/Pest.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$bootOnly is not defined',
                 'tests/Unit/Defaults.php: UndefinedMethod: Method PHPUnit\Framework\TestCase::createUser does not exist',
                 'tests/Unit/Defaults.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$defaultOnly is not defined',
                 'tests/Unit/Defaults.php: UndefinedThisPropertyFetch: Instance property PHPUnit\Framework\TestCase::$featureOnly is not defined',

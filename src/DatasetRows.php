@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace AliesDev\PsalmPluginPest;
 
+use PhpParser\Node\Arg;
 use PhpParser\Node\ArrayItem;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\Closure;
+use PhpParser\Node\Expr\FuncCall;
+use PhpParser\Node\Identifier;
+use PhpParser\Node\Name;
+use PhpParser\Node\NullableType;
 use PhpParser\Node\Scalar\Int_;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\UnionType;
 
 /**
  * The closures Pest runs on the test inside a dataset array literal: `->with([...])` and
@@ -19,7 +25,8 @@ use PhpParser\Node\Scalar\String_;
  *
  * Pest also passes a closure as is when the test parameter it fills is typed `Closure` or
  * `callable`, or `mixed` (or untyped) when the row gives the test more than one argument. That is
- * followed only when the test closure is in sight ({@see self::closures()}).
+ * followed only when the test closure is in sight and the rows start at its first parameter
+ * ({@see self::closures()}).
  */
 final class DatasetRows
 {
@@ -58,6 +65,61 @@ final class DatasetRows
         }
 
         return $closures;
+    }
+
+    /**
+     * The parameter types of the test closure of `it()` / `test()`, as `Reflection::getFunctionArguments()`
+     * spells them, or null when the closure is not in sight.
+     *
+     * @return array<string, string>|null
+     */
+    public static function parameterTypes(?FuncCall $test): ?array
+    {
+        $closure = null;
+        foreach ($test?->args ?? [] as $position => $arg) {
+            $name = $arg instanceof Arg ? $arg->name?->name : '';
+            if ($arg instanceof Arg && ($name === 'closure' || ($name === null && $position === 1))) {
+                $closure = $arg->value;
+            }
+        }
+
+        if (!$closure instanceof Closure && !$closure instanceof ArrowFunction) {
+            return null;
+        }
+
+        $types = [];
+        foreach ($closure->params as $param) {
+            if (!$param->var instanceof Expr\Variable || !\is_string($param->var->name)) {
+                return null;
+            }
+
+            $types[$param->var->name] = self::typeName($param->type);
+        }
+
+        return $types;
+    }
+
+    /** `ReflectionNamedType::getName()`, or the names of a union joined by `|`; an untyped parameter is `mixed`. */
+    private static function typeName(mixed $type): string
+    {
+        if ($type instanceof NullableType) {
+            return self::typeName($type->type);
+        }
+
+        if ($type instanceof UnionType) {
+            $names = \array_map(self::typeName(...), $type->types);
+            $nonNull = \array_values(\array_diff($names, ['null']));
+
+            // PHP reflects `T|null` as the named type `?T`.
+            return \count($nonNull) === 1 ? $nonNull[0] : \implode('|', $names);
+        }
+
+        return match (true) {
+            $type === null => 'mixed',
+            $type instanceof Identifier => $type->toLowerString(),
+            $type instanceof Name => \ltrim(NameResolution::resolved($type) ?? $type->toString(), '\\'),
+            default => '',
+        };
     }
 
     /**
