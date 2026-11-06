@@ -18,6 +18,8 @@ namespace PestDeliberateFailureFixture {
         test('rejects in any chain order', function (): void {
             expect(false)->toBeTrue();
         })->group('x')->FAILS()->skip(false);
+
+        it('rejects through property links', fn () => expect(1)->toBeString())->expect(1)->not->toBeInt()->fails();
     }
 
     function manualFailure(): void
@@ -56,6 +58,34 @@ namespace PestDeliberateFailureFixture {
         expect(1)->toBeString();
     }
 }
+
+namespace PestDeliberateFailureOther {
+    final class Check
+    {
+        public function fails(): void {}
+    }
+
+    function it(\Closure $closure): Check
+    {
+        $closure();
+
+        return new Check();
+    }
+
+    /** @return \Pest\Expectation<string> */
+    function expectStatus(bool $ok): \Pest\Expectation
+    {
+        return expect($ok ? 'ok' : 'failed');
+    }
+
+    /** A namespaced `it()` is not Pest's, and a boolean argument of another helper is not the subject. */
+    function lookalikes(): void
+    {
+        it(fn () => expect(true)->toBeFalse())->fails();
+        namespace\it(fn () => expect(true)->toBeFalse())->fails();
+        expectStatus(true)->toBeTrue('x');
+    }
+}
 ?>
 --EXPECTF--
 PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
@@ -65,3 +95,6 @@ PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check
 PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 1; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeTrue() is a strict type check that always fails for string; assert the type the value has or remove the assertion.

@@ -167,19 +167,21 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
     public static function beforeExpressionAnalysis(BeforeExpressionAnalysisEvent $event): ?bool
     {
         $call = $event->getExpr();
-        if (!$call instanceof MethodCall || !$call->name instanceof Identifier || $call->name->toLowerString() !== 'fails') {
+        $source = $event->getStatementsSource();
+        if (!$call instanceof MethodCall
+            || !$call->name instanceof Identifier
+            || $call->name->toLowerString() !== 'fails'
+            || !$source instanceof StatementsAnalyzer
+        ) {
             return null;
         }
 
         $root = $call->var;
-        while ($root instanceof MethodCall) {
+        while ($root instanceof MethodCall || $root instanceof PropertyFetch) {
             $root = $root->var;
         }
 
-        if (!$root instanceof FuncCall
-            || !$root->name instanceof Name
-            || !\in_array(\strtolower(NameResolution::resolved($root->name) ?? $root->name->toString()), ['it', 'test'], true)
-        ) {
+        if (!$root instanceof FuncCall || !self::calls($root, 'it', $source) && !self::calls($root, 'test', $source)) {
             return null;
         }
 
@@ -300,7 +302,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
      */
     private static function reportImpossible(Identifier $member, Union $value, MethodCall|PropertyFetch $expr, StatementsSource $source): void
     {
-        if ($value->isNever() || $expr->getAttribute(self::DELIBERATE_FAILURE) === true || self::isManualFailure($member, $expr)) {
+        if ($value->isNever() || $expr->getAttribute(self::DELIBERATE_FAILURE) === true || self::isManualFailure($member, $expr, $source)) {
             return;
         }
 
@@ -318,17 +320,34 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
      * is Pest's idiom for failing a test by hand, not a mistaken type check. A bare `expect(true)->toBeFalse()`
      * and a non-literal `false` value (`expect($flag)->toBeTrue('x')`, a likely logic bug) are still reported.
      */
-    private static function isManualFailure(Identifier $member, MethodCall|PropertyFetch $expr): bool
+    private static function isManualFailure(Identifier $member, MethodCall|PropertyFetch $expr, StatementsSource $source): bool
     {
         if (!$expr instanceof MethodCall || $expr->args === [] || !\in_array($member->toLowerString(), ['tobetrue', 'tobefalse'], true)) {
             return false;
         }
 
-        $subject = $expr->var instanceof FuncCall ? ($expr->var->args[0] ?? null) : null;
+        $subject = $expr->var instanceof FuncCall && self::calls($expr->var, 'expect', $source) ? ($expr->var->args[0] ?? null) : null;
 
         return $subject instanceof Arg
             && $subject->value instanceof ConstFetch
             && \in_array($subject->value->name->toLowerString(), ['true', 'false'], true);
+    }
+
+    /**
+     * Whether `$call` reaches the global function `$function` the way Psalm resolves a name (`\it()`, an import, an
+     * unqualified call in a namespace without its own `it()`), not a namespaced function of that name.
+     */
+    private static function calls(FuncCall $call, string $function, StatementsSource $source): bool
+    {
+        $name = $call->name;
+        $functions = $source->getCodebase()->functions;
+        if (!$name instanceof Name || !$source instanceof StatementsAnalyzer) {
+            return false;
+        }
+
+        $id = \strtolower($functions->getFullyQualifiedFunctionNameFromString($name->toCodeString(), $source));
+
+        return $id === $function || $name->isUnqualified() && $name->toLowerString() === $function && !$functions->functionExists($source, $id);
     }
 
     /**
