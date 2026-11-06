@@ -198,6 +198,31 @@ final class UsesParserTest extends TestCase
     }
 
     #[Test]
+    public function before_each_element_writes_add_nothing_to_a_property_assigned_as_a_whole(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase'],
+                'targets' => [$this->root . '/tests'],
+                'properties' => [
+                    'bag' => ['ArrayObject'],
+                    'only' => ['array<array-key, string>'],
+                    'total' => ['int'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                pest()->extend(Tests\TestCase::class)->beforeEach(function () {
+                    $this->bag = new ArrayObject();
+                    $this->bag[] = 1;
+                    $this->only['k'] = 'v';
+                    $this->total['x'] = 1;
+                    $this->total = 0;
+                });
+                PHP),
+        );
+    }
+
+    #[Test]
     public function comments_between_name_and_arguments_still_parse(): void
     {
         $this->assertSame(

@@ -40,7 +40,8 @@ use Psalm\Type\TypeVisitor;
  *
  * `properties`: per `$this->name = ...` in a chain's `beforeEach()` closure, the assignment's `@var`
  * (class names resolved to FQCNs), else the class of a `new`, a scalar literal's type, else `mixed`; a
- * write through an element (`$this->name['a'][] = ...`) is an array per dimension.
+ * property written only through elements (`$this->name['a'][] = ...`) is an array per dimension, while
+ * an element write of a property that is also assigned as a whole adds nothing to its type.
  *
  * @psalm-type PestUsesEntry = array{classes: list<string>, targets: list<string>, properties: array<string, non-empty-list<string>>}
  */
@@ -273,6 +274,8 @@ final class UsesParser
         $classes = $isUses ? self::readStrings($root->getArgs(), $dir) : [];
         $targets = null;
         $properties = [];
+        $writes = [];
+        $assigned = [];
 
         foreach ($chain as [$method, $args]) {
             if (isset(self::CLASS_METHODS[$method])) {
@@ -281,7 +284,10 @@ final class UsesParser
             } elseif ($method === 'beforeeach') {
                 $hook = $args[0]->value ?? null;
                 foreach ($hook instanceof Expr\Closure || $hook instanceof Expr\ArrowFunction ? self::thisAssignments($hook) : [] as $name => [$assign, $doc]) {
-                    $properties[$name][] = self::propertyType($assign, $doc, $names);
+                    $writes[] = [$name, $assign, $doc];
+                    if (!$assign->var instanceof Expr\ArrayDimFetch) {
+                        $assigned[$name] = true;
+                    }
                 }
             } elseif ($method === 'in') {
                 $paths = self::readStrings($args, $dir);
@@ -297,6 +303,16 @@ final class UsesParser
                     }
                 }
             }
+        }
+
+        // A write through an element holds what its property holds: the type of a whole assignment (a shape, a
+        // string, an ArrayAccess object) stands, and only a property written through elements alone is an array.
+        foreach ($writes as [$name, $assign, $doc]) {
+            if ($assign->var instanceof Expr\ArrayDimFetch && isset($assigned[$name])) {
+                continue;
+            }
+
+            $properties[$name][] = self::propertyType($assign, $doc, $names);
         }
 
         if ($classes === null) {

@@ -73,7 +73,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, string> `start:end` offsets of the right operand of each `$this->name ??= ...` in a `beforeEach()` closure => name */
     private static array $coalesced = [];
 
-    /** @var array<string, true> properties only written through elements, typed `array<array-key, mixed>` until their first write is analysed */
+    /** @var array<string, bool> properties only written through elements, `true` until their first write replaces the `array<array-key, mixed>` placeholder they start as */
     private static array $seeded = [];
 
     /** @var array<string, true> ids of the `afterEach()` closures, which may run after a `beforeEach()` that threw */
@@ -88,7 +88,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
     private static array $declared = [];
 
-    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>, array<string, string>, array<string, true>}> the including files' state */
+    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>, array<string, string>, array<string, bool>}> the including files' state */
     private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
@@ -151,7 +151,9 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         // Psalm analyses `??=` as an assignment of a coalesce, whose left side is what the property
         // held so far: the operand is what the property gets, and is typed once analysed.
         $coalesced = self::$coalesced === [] ? null : self::$coalesced[$expr->getStartFilePos() . ':' . $expr->getEndFilePos()] ?? null;
-        if ($coalesced !== null) {
+        // A property already typed (by an earlier write) only takes the operand when it can still be null:
+        // otherwise `??=` never assigns, and the operand would widen what the property holds.
+        if ($coalesced !== null && (!isset(self::$types[$coalesced]) || self::$types[$coalesced]->isNullable() || self::$types[$coalesced]->possibly_undefined)) {
             $operand = $event->getStatementsSource()->getNodeTypeProvider()->getType($expr);
             if ($operand instanceof Union) {
                 self::record($coalesced, self::widen($operand, $event->getCodebase()), $event->getCodebase());
@@ -163,15 +165,23 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             return null;
         }
 
-        // The context holds what the assignment left on the property, a `@var` on it included.
-        $assigned = $event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed();
-        if ($expr->var instanceof ArrayDimFetch && !$assigned->hasObjectType()) {
-            // An element write leaves the shape of that one write (`array{a: array{b: 'x'}}`), not what the
-            // property can hold: it holds an array per dimension, around the type of the value written.
-            $value = $event->getStatementsSource()->getNodeTypeProvider()->getType($expr->expr);
-            $assigned = self::arrayWrittenThrough($expr->var, $value instanceof Union ? self::widen($value, $event->getCodebase()) : Type::getMixed());
+        if ($expr->var instanceof ArrayDimFetch) {
+            if (isset(self::$seeded[$name])) {
+                // A property only written through elements has no whole value to start from: it holds an array
+                // per dimension, around the type of the value written (the context holds the shape of that one write).
+                $value = $event->getStatementsSource()->getNodeTypeProvider()->getType($expr->expr);
+                $assigned = self::arrayWrittenThrough($expr->var, $value instanceof Union ? self::widen($value, $event->getCodebase()) : Type::getMixed());
+            } elseif (isset(self::$types[$name])) {
+                // A property that is also assigned as a whole keeps what Psalm infers for it after the write
+                // (its shape, a string, an ArrayAccess object): the write must not invent another container.
+                $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed(), $event->getCodebase());
+            } else {
+                // Analysed before any whole assignment, the property is still `mixed`: that assignment types it.
+                return null;
+            }
         } else {
-            $assigned = self::widen($assigned, $event->getCodebase());
+            // The context holds what the assignment left on the property, a `@var` on it included.
+            $assigned = self::widen($event->getContext()->vars_in_scope['$this->' . $name] ?? Type::getMixed(), $event->getCodebase());
         }
 
         self::record($name, $assigned, $event->getCodebase());
@@ -182,10 +192,12 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** The first write replaces the placeholder the property was seeded with, whose mixed leaf would absorb its type. */
     private static function record(string $name, Union $type, Codebase $codebase): void
     {
-        self::$types[$name] = isset(self::$types[$name]) && !isset(self::$seeded[$name])
+        self::$types[$name] = isset(self::$types[$name]) && !(self::$seeded[$name] ?? false)
             ? Type::combineUnionTypes(self::$types[$name], $type, $codebase)
             : $type;
-        unset(self::$seeded[$name]);
+        if (isset(self::$seeded[$name])) {
+            self::$seeded[$name] = false;
+        }
     }
 
     /** An array per dimension of `$element` around `$leaf`: `$this->p['a']['b'] = ...` finds `array<array-key, array<array-key, T>>`. */
@@ -256,9 +268,11 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
         }
 
         // A property only ever written through its elements holds an array, whichever write is analysed first.
+        // Until then it may still be unset (`if (!isset($this->p)) { $this->p['a'] = 1; }`), so the seed is
+        // nullable, with the null not reported on the dimensions of a write.
         foreach (\array_diff_key($elements, $plain) as $name => $type) {
             if (!isset(self::$types[$name])) {
-                self::$types[$name] = $type;
+                self::$types[$name] = Type::combineUnionTypes($type, Type::getNull(), $codebase)->setProperties(['ignore_nullable_issues' => true]);
                 self::$seeded[$name] = true;
             }
         }
