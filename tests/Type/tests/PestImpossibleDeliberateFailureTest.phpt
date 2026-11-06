@@ -28,6 +28,11 @@ namespace PestDeliberateFailureFixture {
         it('throws an assertion failure', fn () => expect(1)->toBeString())->throws(\PHPUnit\Framework\AssertionFailedError::class);
         it('throws a subclass', fn () => expect(1)->toBeString())->throws(\PHPUnit\Framework\ExpectationFailedException::class, 'boom');
         it('throws by name', fn () => expect(1)->toBeString())->throws(exceptionMessage: 'boom', exception: \PHPUnit\Framework\AssertionFailedError::class);
+
+        // Pest takes a string naming a class as the exception class, the way class_exists() reads it.
+        it('throws a class name', fn () => expect(1)->toBeString())->throws('PHPUnit\Framework\AssertionFailedError');
+        it('throws a qualified name', fn () => expect(1)->toBeString())->throws('\PHPUnit\Framework\ExpectationFailedException');
+        it('throws a name in any case', fn () => expect(1)->toBeString())->throwsIf(true, 'phpunit\framework\assertionfailederror');
         it('throws if', fn () => expect(1)->toBeString())->throwsIf(true, \PHPUnit\Framework\AssertionFailedError::class);
         it('throws unless', fn () => expect(1)->toBeString())->throwsUnless(false, \PHPUnit\Framework\AssertionFailedError::class);
 
@@ -66,11 +71,12 @@ namespace PestDeliberateFailureFixture {
             expect(true)->toBeFalse();
         })->group('x');
 
-        // Another exception, a literal condition that turns the expectation off, or a message instead of a class.
+        // Another exception, a literal condition that turns the expectation off, or a message that names no class.
         it('throws another exception', fn () => expect(1)->toBeString())->throws(\RuntimeException::class);
         it('throws if never', fn () => expect(1)->toBeString())->throwsIf(false, \PHPUnit\Framework\AssertionFailedError::class);
         it('throws unless always', fn () => expect(1)->toBeString())->throwsUnless(true, \PHPUnit\Framework\AssertionFailedError::class);
-        it('throws a message', fn () => expect(1)->toBeString())->throws('PHPUnit\Framework\AssertionFailedError');
+        it('throws a message', fn () => expect(1)->toBeString())->throws('AssertionFailedError');
+        it('throws another class name', fn () => expect(1)->toBeString())->throws('RuntimeException');
 
         // Only a literal subject directly on `expect()` is a manual failure, not one later in the chain.
         expect(1)->toBe(1)->and(false)->toBeTrue('manual');
@@ -116,6 +122,7 @@ PestImpossibleExpectation on line %d: Pest's toBeTrue() is a strict type check t
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 42; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeFalse() is a strict type check that always fails for true; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 1; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 1; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 1; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for 1; assert the type the value has or remove the assertion.

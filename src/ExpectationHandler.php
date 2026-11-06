@@ -16,6 +16,11 @@ use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
+use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt;
+use PhpParser\Node\Stmt\Expression;
+use PhpParser\Node\Stmt\Function_;
+use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\NodeFinder;
 use Psalm\Codebase;
 use Psalm\CodeLocation;
@@ -25,9 +30,11 @@ use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterCodebasePopulatedInterface;
 use Psalm\Plugin\EventHandler\AfterExpressionAnalysisInterface;
 use Psalm\Plugin\EventHandler\BeforeExpressionAnalysisInterface;
+use Psalm\Plugin\EventHandler\BeforeFileAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterCodebasePopulatedEvent;
 use Psalm\Plugin\EventHandler\Event\AfterExpressionAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\BeforeExpressionAnalysisEvent;
+use Psalm\Plugin\EventHandler\Event\BeforeFileAnalysisEvent;
 use Psalm\Plugin\EventHandler\Event\MethodReturnTypeProviderEvent;
 use Psalm\StatementsSource;
 use Psalm\Storage\ClassLikeStorage;
@@ -67,10 +74,13 @@ use Psalm\Type\Union;
  * `expect()->extend()` assertions are invisible to a scan; `->not` / `->each` read through a proxy resolve from the
  * `Expectation` mixin (which wins over the proxy's own pseudo properties), so the value type is not tracked there.
  */
-final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface
+final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface, BeforeFileAnalysisInterface
 {
     /** Attribute on the calls inside a test closure that is expected to fail. */
     private const DELIBERATE_FAILURE = 'pest-deliberate-failure';
+
+    /** Attribute on the `beforeEach()` of a chain statement: the statements after it in the same block. */
+    private const FOLLOWING = 'pest-following-statements';
 
     /** What PHPUnit throws for a failed assertion, and what `->fails()` makes a test expect. */
     private const ASSERTION_FAILED = 'PHPUnit\Framework\AssertionFailedError';
@@ -162,12 +172,40 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
     }
 
     /**
+     * A `beforeEach()` chain applies to the tests created after it in its block (the file, or the `describe()`
+     * closure it sits in), which the expression alone does not show: this hands each one the statements after it.
+     */
+    #[\Override]
+    public static function beforeAnalyzeFile(BeforeFileAnalysisEvent $event): void
+    {
+        $stmts = $event->getStmts();
+        $blocks = [$stmts];
+        $finder = new NodeFinder();
+        foreach ($finder->find($stmts, static fn(Node $node): bool => $node instanceof Namespace_ || $node instanceof Function_ || $node instanceof Closure) as $node) {
+            /** @var Namespace_|Function_|Closure $node */
+            $blocks[] = $node->stmts;
+        }
+
+        foreach ($blocks as $block) {
+            $block = \array_values($block);
+            foreach ($block as $index => $stmt) {
+                $root = $stmt instanceof Expression && $stmt->expr instanceof MethodCall ? self::chainRoot($stmt->expr) : null;
+                if ($root instanceof FuncCall && $root->name instanceof Name && \strtolower($root->name->getLast()) === 'beforeeach') {
+                    $root->setAttribute(self::FOLLOWING, \array_slice($block, $index + 1));
+                }
+            }
+        }
+    }
+
+    /**
      * A test chain that contains `->fails()` expects its closure to fail, so the assertions inside it are not
      * impossible by mistake. So does `->throws(AssertionFailedError::class)` (what `->fails()` calls) or a subclass
      * such as `ExpectationFailedException`, and `->throwsIf()` / `->throwsUnless()` with one: their condition counts
-     * unless it is the literal that turns the expectation off, since a runtime condition may well hold. Psalm analyzes
-     * the closure while it analyzes `it()`, before the chain's own call is seen from there; this runs first and
-     * marks the closure's calls for {@see self::reportImpossible()}.
+     * unless it is the literal that turns the expectation off, since a runtime condition may well hold. On
+     * `describe()` the step applies to every test in the block, and on `beforeEach()` to every test after it in its
+     * block: Pest replays it on each of them. Psalm analyzes the closure while it analyzes `it()`, before the chain's
+     * own call is seen from there; this runs first and marks the test closures' calls for {@see self::reportImpossible()}.
+     * The closures of hooks are not marked: a failing hook still fails the test.
      */
     #[\Override]
     public static function beforeExpressionAnalysis(BeforeExpressionAnalysisEvent $event): ?bool
@@ -178,25 +216,47 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
             return null;
         }
 
-        $root = $call->var;
-        while ($root instanceof MethodCall || $root instanceof PropertyFetch) {
-            $root = $root->var;
+        $root = self::chainRoot($call);
+        if (!$root instanceof FuncCall) {
+            return null;
         }
 
-        if (!$root instanceof FuncCall || !self::calls($root, 'it', $source) && !self::calls($root, 'test', $source)) {
+        if (self::calls($root, 'beforeeach', $source)) {
+            /** @var list<Stmt> $scope */
+            $scope = $root->getAttribute(self::FOLLOWING, []);
+        } elseif (self::calls($root, 'it', $source) || self::calls($root, 'test', $source) || self::calls($root, 'describe', $source)) {
+            $scope = [$root];
+        } else {
             return null;
         }
 
         $finder = new NodeFinder();
-        foreach ($root->args as $arg) {
-            if ($arg instanceof Arg && ($arg->value instanceof Closure || $arg->value instanceof ArrowFunction)) {
-                foreach ($finder->findInstanceOf($arg->value, MethodCall::class) as $inner) {
-                    $inner->setAttribute(self::DELIBERATE_FAILURE, true);
+        foreach ($finder->findInstanceOf($scope, FuncCall::class) as $test) {
+            if (!self::calls($test, 'it', $source) && !self::calls($test, 'test', $source)) {
+                continue;
+            }
+
+            foreach ($test->args as $arg) {
+                if ($arg instanceof Arg && ($arg->value instanceof Closure || $arg->value instanceof ArrowFunction)) {
+                    foreach ($finder->findInstanceOf($arg->value, MethodCall::class) as $inner) {
+                        $inner->setAttribute(self::DELIBERATE_FAILURE, true);
+                    }
                 }
             }
         }
 
         return null;
+    }
+
+    /** The call a chain of `->step()` / `->property` links starts from. */
+    private static function chainRoot(MethodCall $call): Node\Expr
+    {
+        $root = $call->var;
+        while ($root instanceof MethodCall || $root instanceof PropertyFetch) {
+            $root = $root->var;
+        }
+
+        return $root;
     }
 
     /** Whether the test chain step `$call` makes Pest expect the test to fail an assertion. */
@@ -223,15 +283,18 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         }
 
         $exception = self::argument($call, $step === 'throws' ? 0 : 1, 'exception');
-        if (!$exception instanceof ClassConstFetch
-            || !$exception->class instanceof Name
-            || !$exception->name instanceof Identifier
-            || $exception->name->toLowerString() !== 'class'
+        if ($exception instanceof String_) {
+            // Pest takes a string that class_exists() accepts as the class: any case, one leading backslash.
+            $class = \str_starts_with($exception->value, '\\') ? \substr($exception->value, 1) : $exception->value;
+        } elseif ($exception instanceof ClassConstFetch
+            && $exception->class instanceof Name
+            && $exception->name instanceof Identifier
+            && $exception->name->toLowerString() === 'class'
         ) {
+            $class = NameResolution::resolved($exception->class) ?? $exception->class->toString();
+        } else {
             return false;
         }
-
-        $class = NameResolution::resolved($exception->class) ?? $exception->class->toString();
 
         return \strcasecmp($class, self::ASSERTION_FAILED) === 0
             || $codebase->classOrInterfaceExists($class) && $codebase->classExtendsOrImplements($class, self::ASSERTION_FAILED);
