@@ -32,7 +32,7 @@ namespace PestExpectationValueFixture {
         }
     }
 
-    function value(int|string $intOrString, ?User $maybe, User $user): void
+    function value(int|string $intOrString, int|string $notString, int|string $untouched, ?User $maybe, ?User $instanceOf, ?User $chain, ?User $maybeMember, User $user): void
     {
         // The expectation is of the argument, not of the argument or null.
         $_value = expect($intOrString);
@@ -49,16 +49,16 @@ namespace PestExpectationValueFixture {
         $_int = expect($intOrString)->toBeInt();
         /** @psalm-check-type-exact $_int = \Pest\Expectation<int> */
 
-        $_notString = expect($intOrString)->not->toBeString();
+        $_notString = expect($notString)->not->toBeString();
         /** @psalm-check-type-exact $_notString = \Pest\Expectation<int> */
 
         $_notNull = expect($maybe)->not->toBeNull();
         /** @psalm-check-type-exact $_notNull = \Pest\Expectation<User> */
 
-        $_instance = expect($maybe)->toBeInstanceOf(User::class);
+        $_instance = expect($instanceOf)->toBeInstanceOf(User::class);
         /** @psalm-check-type-exact $_instance = \Pest\Expectation<User> */
 
-        $_chain = expect($maybe)->not->toBeNull()->toBe($user)->not->toBeNull();
+        $_chain = expect($chain)->not->toBeNull()->toBe($user)->not->toBeNull();
         /** @psalm-check-type-exact $_chain = \Pest\Expectation<User> */
 
         // A higher-order expectation is typed from the value's member ...
@@ -68,7 +68,7 @@ namespace PestExpectationValueFixture {
         $_method = expect($user)->getName();
         /** @psalm-check-type-exact $_method = \Pest\Expectations\HigherOrderExpectation<\Pest\Expectation<User>, string> */
 
-        $_nullableMember = expect($maybe)->age;
+        $_nullableMember = expect($maybeMember)->age;
         /** @psalm-check-type-exact $_nullableMember = \Pest\Expectations\HigherOrderExpectation<\Pest\Expectation<User|null>, int|null> */
 
         // ... and an assertion hands the chain back to the original value.
@@ -85,7 +85,7 @@ namespace PestExpectationValueFixture {
         /** @psalm-check-type-exact $_unknown = \Pest\Expectations\HigherOrderExpectation<\Pest\Expectation<User>, mixed> */
 
         expect($user)->nothing();
-        expect($intOrString)->toBeIntt();
+        expect($untouched)->toBeIntt();
 
         // A forwarded method checks the arguments it is called with.
         expect($user)->add(1)->toBe(2);
