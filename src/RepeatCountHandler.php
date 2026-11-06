@@ -61,8 +61,8 @@ final class RepeatCountHandler implements AfterExpressionAnalysisInterface
         }
 
         $count = self::countArg($call, $param);
-        $type = $count === null ? null : $nodeTypes->getType($count->value);
-        if ($count === null || !$type instanceof Union || !self::isBelowOne($type)) {
+        $type = $count instanceof \PhpParser\Node\Arg ? $nodeTypes->getType($count->value) : null;
+        if (!$count instanceof \PhpParser\Node\Arg || !$type instanceof Union || !self::isBelowOne($type)) {
             return null;
         }
 
