@@ -7,6 +7,89 @@ namespace PestExpectNarrowingFixture {
     final class Holder
     {
         public ?string $prop = null;
+        public ?self $next = null;
+        public ?\stdClass $object = null;
+
+        public function method(): void {}
+
+        public function size(): int
+        {
+            return 0;
+        }
+    }
+
+    /** @psalm-pure */
+    function seen(mixed $_value): int
+    {
+        return 0;
+    }
+
+    // A check comment is evaluated after the statement that follows it, hence `seen()` as that statement.
+    function properties(Holder $holder, Holder $other): void
+    {
+        expect($holder->prop)->not->toBeNull();
+        /** @psalm-check-type-exact $holder->prop = string */
+        echo seen($holder->prop);
+
+        expect($other->prop)->toBeNull();
+        /** @psalm-check-type-exact $other->prop = null */
+        echo seen($other->prop);
+    }
+
+    function nestedProperties(Holder $holder): void
+    {
+        expect($holder->next)->toBeInstanceOf(Holder::class);
+        expect($holder->next->object)->not->toBeNull();
+        /** @psalm-check-type-exact $holder->next = Holder */
+        /** @psalm-check-type-exact $holder->next->object = \stdClass */
+        echo seen($holder->next->object);
+    }
+
+    function propertyThroughAnd(Holder $holder, ?string $plain): void
+    {
+        expect($plain)->toBeString()->and($holder->prop)->toBeString();
+        /** @psalm-check-type-exact $plain = string */
+        /** @psalm-check-type-exact $holder->prop = string */
+        echo seen($holder->prop);
+    }
+
+    // The narrowing is dropped by what drops Psalm's own: a write, the base variable changing. A method call keeps it,
+    // as after `assert()` (Psalm's `rememberPropertyAssignmentsAfterCall`).
+    function propertyInvalidated(Holder $holder, Holder $second, Holder $third): void
+    {
+        expect($holder->prop)->not->toBeNull();
+        $holder->prop = null;
+        /** @psalm-check-type-exact $holder->prop = null */
+        echo seen($holder->prop);
+
+        expect($second->prop)->not->toBeNull();
+        $second->method();
+        /** @psalm-check-type-exact $second->prop = string */
+        echo seen($second->prop);
+
+        expect($third->prop)->not->toBeNull();
+        $third = new Holder();
+        /** @psalm-check-type-exact $third->prop = string|null */
+        echo seen($third->prop);
+    }
+
+    function propertyWrittenInChain(Holder $holder): void
+    {
+        expect($holder->prop)->toBeString()->and($holder->prop = null)->toBeNull();
+        /** @psalm-check-type-exact $holder->prop = null */
+        echo seen($holder->prop);
+    }
+
+    final class Cart
+    {
+        public ?string $name = null;
+
+        public function narrowed(): string
+        {
+            expect($this->name)->not->toBeNull();
+
+            return $this->name;
+        }
     }
 
     // The issue: asserting non-null makes the value returnable as `object`.
@@ -56,12 +139,8 @@ namespace PestExpectNarrowingFixture {
         expect($a)->each->toBeString();
         /** @psalm-check-type-exact $a = int|string|null */
 
-        // A property path is not a plain variable: nothing to narrow, nothing reported.
-        expect($holder->prop)->toBeString();
-        /** @psalm-check-type-exact $holder = Holder */
-
         // `and()` of a non-variable ends the walk, after what came before it applied.
-        expect($b)->toBeInt()->and($holder->prop)->toBeNull();
+        expect($b)->toBeInt()->and($holder->size())->toBeInt();
         /** @psalm-check-type-exact $b = int */
     }
 
@@ -129,6 +208,23 @@ namespace PestExpectNarrowingFixture {
         expect($other)->toBeInt()->and($other)->toBe($other = null);
         /** @psalm-check-type-exact $other = null */
     }
+}
+
+namespace PestExpectNarrowingFixture\Closures {
+    abstract class TestCase extends \PHPUnit\Framework\TestCase
+    {
+        public ?string $token = null;
+    }
+}
+
+namespace {
+    uses(PestExpectNarrowingFixture\Closures\TestCase::class);
+
+    test('a property of the test case is narrowed in the closure', function (): void {
+        expect($this->token)->not->toBeNull();
+        /** @psalm-check-type-exact $this->token = string */
+        echo \strlen($this->token);
+    });
 }
 
 namespace PestExpectNarrowingFixture\Own {

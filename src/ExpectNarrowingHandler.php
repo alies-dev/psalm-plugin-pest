@@ -52,7 +52,8 @@ use Psalm\Type\Union;
  * `is_string()` would. It gets no code location (tests routinely assert what the type already says) and is marked
  * as coming from a docblock, so a later contradicting `if` is a DocblockTypeContradiction. An assertion that
  * cannot hold (`expect($string)->toBeInt()`) narrows nothing: the test fails at runtime ({@see ExpectationHandler}
- * reports it). Only plain variables are narrowed.
+ * reports it). The subject is a plain variable or a property path (`$a->b`, `$this->prop`): Psalm tracks both in
+ * scope and a narrowed path is treated alike (a write drops it; a method call does not, as after Psalm's own `assert()`).
  */
 final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
 {
@@ -329,18 +330,31 @@ final class ExpectNarrowingHandler implements AfterStatementAnalysisInterface
     }
 
     /**
-     * @return string|null `$name` for a plain `$name` argument; null for anything else (spread, named, expression)
+     * @return string|null the id Psalm keeps the argument under in scope: `$name`, or a property path such as
+     *                     `$a->b` / `$this->prop`; null for anything else (spread, named, expression, `$a?->b`)
      *
      * @psalm-mutation-free
      */
     private static function variableId(mixed $arg): ?string
     {
-        if (!$arg instanceof Arg || $arg->unpack || $arg->name instanceof \PhpParser\Node\Identifier) {
-            return null;
+        return $arg instanceof Arg && !$arg->unpack && !$arg->name instanceof Identifier
+            ? self::pathId($arg->value)
+            : null;
+    }
+
+    /** @psalm-mutation-free */
+    private static function pathId(Expr $expr): ?string
+    {
+        if ($expr instanceof Variable) {
+            return \is_string($expr->name) ? '$' . $expr->name : null;
         }
 
-        $value = $arg->value;
+        if ($expr instanceof PropertyFetch && $expr->name instanceof Identifier) {
+            $base = self::pathId($expr->var);
 
-        return $value instanceof Variable && \is_string($value->name) ? '$' . $value->name : null;
+            return $base === null ? null : $base . '->' . $expr->name->name;
+        }
+
+        return null;
     }
 }
