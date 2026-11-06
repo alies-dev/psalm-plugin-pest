@@ -8,6 +8,9 @@ use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\ClassConstFetch;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Expr\MethodCall;
+use PhpParser\Node\Expr\NullsafeMethodCall;
+use PhpParser\Node\Expr\NullsafePropertyFetch;
+use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use Psalm\Codebase;
@@ -47,6 +50,9 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     ];
 
     private const RECEIVER = 'pest-receiver';
+
+    /** The method name as written at the call site (the providers only see it lowercased). */
+    private const WRITTEN = 'pest-written-method';
 
     #[\Override]
     public static function afterCodebasePopulated(AfterCodebasePopulatedEvent $event): void
@@ -101,7 +107,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             return null;
         }
 
-        if ($class === PestApi::EXPECTATION && !self::startsAtTest($arg->getAttribute(self::RECEIVER))) {
+        if ($class === PestApi::EXPECTATION && (!self::calledAs($arg, 'and') || !self::startsAtTest($arg->getAttribute(self::RECEIVER)))) {
             return null;
         }
 
@@ -121,26 +127,39 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
         $call = $event->getExpr();
         if ($call instanceof MethodCall && isset($call->args[0])) {
             $call->args[0]->setAttribute(self::RECEIVER, $call->var);
+            $call->args[0]->setAttribute(self::WRITTEN, $call->name instanceof Identifier ? $call->name->name : null);
         }
 
         return null;
     }
 
     /**
-     * Whether a method chain starts at `it('x')` / `test('x')`: Pest replays the rest of that chain
-     * through `HigherOrderCallables`, which binds the closure of `expect()` / `and()` to the TestCase.
-     * Any other `Expectation::and()` takes the closure as a plain value.
+     * Whether the call took `$arg` as its first argument under exactly the method name `$name`. Psalm
+     * lowercases the name it hands to providers, but Pest looks a higher-order `expect()` / `and()` up
+     * case-sensitively (`HigherOrderMessage::hasHigherOrderCallable()`), so `And()` binds nothing.
+     */
+    public static function calledAs(?Arg $arg, string $name): bool
+    {
+        return $arg?->getAttribute(self::WRITTEN) === $name;
+    }
+
+    /**
+     * Whether a chain starts at Pest's `it('x')` / `test('x')`: Pest replays the rest of that chain
+     * (method calls and property fetches such as `->not`) through `HigherOrderCallables`, which binds
+     * the closure of `expect()` / `and()` to the TestCase. Any other `Expectation::and()` takes the
+     * closure as a plain value. A qualified or imported function of another namespace
+     * (`\Other\test()`) is told apart by its resolved name.
      */
     private static function startsAtTest(mixed $link): bool
     {
-        while ($link instanceof MethodCall) {
+        while ($link instanceof MethodCall || $link instanceof NullsafeMethodCall || $link instanceof PropertyFetch || $link instanceof NullsafePropertyFetch) {
             $link = $link->var;
         }
 
         return $link instanceof FuncCall
             && $link->name instanceof Name
-            && \in_array($link->name->getLast(), ['it', 'test'], true)
-            && $link->args !== [];
+            && $link->args !== []
+            && \in_array(\strtolower(NameResolution::resolved($link->name) ?? $link->name->toString()), ['it', 'test'], true);
     }
 
     /**

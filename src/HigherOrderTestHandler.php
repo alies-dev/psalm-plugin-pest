@@ -57,17 +57,15 @@ final class HigherOrderTestHandler implements AfterCodebasePopulatedInterface
                 }
 
                 // HigherOrderCallables::expect() is templated, which Psalm cannot bind here. It binds a closure
-                // value to the TestCase (`Reflection::bindCallableWithData()`).
+                // value to the TestCase (`Reflection::bindCallableWithData()`), but only when the call is spelled
+                // exactly `expect` / `and`: Pest matches the name case-sensitively.
                 $codebase = $source->getCodebase();
                 $file = $source->getFilePath();
+                $params = [new FunctionLikeParameter('value', false, Type::getMixed(), Type::getMixed())];
 
-                return ClosureThisHandler::bind(
-                    $codebase,
-                    [new FunctionLikeParameter('value', false, Type::getMixed(), Type::getMixed())],
-                    0,
-                    BoundTestCase::thisType($codebase, $file),
-                    BoundTestCase::traits($codebase, $file),
-                );
+                return ClosureThisHandler::calledAs(($event->getCallArgs() ?? [])[0] ?? null, $name)
+                    ? ClosureThisHandler::bind($codebase, $params, 0, BoundTestCase::thisType($codebase, $file), BoundTestCase::traits($codebase, $file))
+                    : $params;
             },
         );
         $codebase->methods->return_type_provider->registerClosure(
