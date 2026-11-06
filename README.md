@@ -55,7 +55,7 @@ it('totals the cart', function () {
 | Pest code | Psalm sees |
 |---|---|
 | `$this` in tests, hooks and datasets | Your TestCase from `uses()` / `pest()->extend()`, plus its traits |
-| `$this->user` set in `beforeEach()`, also as `$this->user['key'] = ...`, `[] = ...` or `??=` | A declared property with its type, also from `tests/Pest.php` |
+| `$this->user` set in `beforeEach()`, also as `$this->user['key'] = ...`, `[] = ...`, `??=` or `[$this->user, $this->team] = ...` | A declared property with its type, also from `tests/Pest.php` (`mixed` there for a destructured one) |
 | A function from `tests/Pest.php`, `Helpers.php` or `Helpers/` | Declared in every file under `tests/`, with its return type |
 | `test()` with no arguments | The bound TestCase |
 | `it('x')->actingAsAdmin()` | A resolved higher order call |

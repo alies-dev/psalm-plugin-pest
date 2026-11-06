@@ -41,7 +41,8 @@ use Psalm\Type\TypeVisitor;
  * `properties`: per `$this->name = ...` in a chain's `beforeEach()` closure, the assignment's `@var`
  * (class names resolved to FQCNs), else the class of a `new`, a scalar literal's type, else `mixed`; a
  * property written only through elements (`$this->name['a'][] = ...`) is an array per dimension, while
- * an element write of a property that is also assigned as a whole adds nothing to its type.
+ * an element write of a property that is also assigned as a whole adds nothing to its type. A property
+ * a destructuring assigns (`[$this->a, $this->b] = ...`) is `mixed`.
  *
  * @psalm-type PestUsesEntry = array{classes: list<string>, targets: list<string>, properties: array<string, non-empty-list<string>>}
  */
@@ -333,6 +334,8 @@ final class UsesParser
      * Each `$this->name = ...`, `$this->name ??= ...` and write through an element of it
      * (`$this->name[...] = ...`, `$this->name[] = ...`) that is the closure's own `$this` (a nested
      * class, function or static closure has another one), with the docblock of its statement.
+     * A destructuring (`[$this->a, 'k' => $this->b] = ...`, `list(...)`, nested ones too) is yielded
+     * once per `$this->name` it targets; an element of a property as a target is not read.
      *
      * @return \Generator<string, array{Expr\Assign|Expr\AssignOp\Coalesce, string}>
      */
@@ -357,26 +360,81 @@ final class UsesParser
         foreach ($finder->find($closure->getStmts(), $isWrite) as $assign) {
             \assert($assign instanceof Expr\Assign || $assign instanceof Expr\AssignOp\Coalesce);
 
+            if (isset($foreign[\spl_object_id($assign)])) {
+                continue;
+            }
+
+            if ($assign instanceof Expr\Assign && ($assign->var instanceof Expr\List_ || $assign->var instanceof Expr\Array_)) {
+                foreach (self::destructuredTargets($assign->var) as $target) {
+                    $name = self::thisProperty($target);
+                    if ($name !== null) {
+                        yield $name => [$assign, $docs[\spl_object_id($assign)] ?? ''];
+                    }
+                }
+
+                continue;
+            }
+
             // An element write holds the array its property holds: `$this->name['a']['b'] = ...` declares `name`.
             $target = $assign->var;
             while ($target instanceof Expr\ArrayDimFetch) {
                 $target = $target->var;
             }
 
-            if ($target instanceof Expr\PropertyFetch
-                && $target->var instanceof Expr\Variable
-                && $target->var->name === 'this'
-                && $target->name instanceof Identifier
-                && !isset($foreign[\spl_object_id($assign)])
-            ) {
-                yield $target->name->name => [$assign, $docs[\spl_object_id($assign)] ?? ''];
+            $name = self::thisProperty($target);
+            if ($name !== null) {
+                yield $name => [$assign, $docs[\spl_object_id($assign)] ?? ''];
             }
         }
     }
 
-    /** The property holds an array per dimension of an element write, around the type of the value written. */
+    /** Whether the assignment destructures (`[$a, $b] = ...`, `list($a) = ...`) instead of writing one target. */
+    public static function isDestructuring(Expr\Assign|Expr\AssignOp\Coalesce $assign): bool
+    {
+        return $assign instanceof Expr\Assign && ($assign->var instanceof Expr\List_ || $assign->var instanceof Expr\Array_);
+    }
+
+    /**
+     * The values a destructuring writes to, nested lists unfolded, skipped entries left out.
+     *
+     * @return \Generator<int, Expr>
+     */
+    private static function destructuredTargets(Expr\List_|Expr\Array_ $list): \Generator
+    {
+        foreach ($list->items as $item) {
+            if ($item === null) {
+                continue;
+            }
+
+            if ($item->value instanceof Expr\List_ || $item->value instanceof Expr\Array_) {
+                yield from self::destructuredTargets($item->value);
+            } else {
+                yield $item->value;
+            }
+        }
+    }
+
+    /** The name of `$this->name`, null for any other expression. */
+    private static function thisProperty(Expr $target): ?string
+    {
+        return $target instanceof Expr\PropertyFetch
+            && $target->var instanceof Expr\Variable
+            && $target->var->name === 'this'
+            && $target->name instanceof Identifier
+                ? $target->name->name
+                : null;
+    }
+
+    /**
+     * The property holds an array per dimension of an element write, around the type of the value written.
+     * What a destructuring assigns to it is not read (the value is split by position or key): `mixed`.
+     */
     private static function propertyType(Expr\Assign|Expr\AssignOp\Coalesce $assign, string $doc, NameContext $names): string
     {
+        if (self::isDestructuring($assign)) {
+            return 'mixed';
+        }
+
         $type = self::valueType($assign, $doc, $names);
         for ($fetch = $assign->var; $fetch instanceof Expr\ArrayDimFetch; $fetch = $fetch->var) {
             $type = 'array<array-key, ' . $type . '>';

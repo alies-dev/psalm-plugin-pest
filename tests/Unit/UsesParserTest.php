@@ -223,6 +223,38 @@ final class UsesParserTest extends TestCase
     }
 
     #[Test]
+    public function before_each_hooks_declare_properties_assigned_by_destructuring(): void
+    {
+        $this->assertSame(
+            [[
+                'classes' => ['Tests\TestCase'],
+                'targets' => [$this->root . '/tests'],
+                'properties' => [
+                    'user' => ['mixed'],
+                    'team' => ['mixed'],
+                    'label' => ['mixed'],
+                    'first' => ['mixed'],
+                    'second' => ['mixed'],
+                    'both' => ['ArrayObject', 'mixed'],
+                    'nested' => ['mixed'],
+                ],
+            ]],
+            $this->parsePest(<<<'PHP'
+                pest()->extend(Tests\TestCase::class)->beforeEach(function () {
+                    [$this->user, $this->team] = [new User(), new Team()];
+                    ['token' => $this->label] = ['token' => 'x'];
+                    list($this->first, list(, $this->second)) = [1, [2, 3]];
+                    $this->both = new ArrayObject();
+                    [$this->both] = [1];
+                    [$local, $this->skipped['k'], $other->property] = [1, 2, 3];
+                    (function () { [$this->nested] = [1]; })();
+                    $static = static function () { [$this->ignored] = [1]; };
+                });
+                PHP),
+        );
+    }
+
+    #[Test]
     public function comments_between_name_and_arguments_still_parse(): void
     {
         $this->assertSame(

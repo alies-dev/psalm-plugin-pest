@@ -44,7 +44,8 @@ use Psalm\Type\Atomic\TTypeVariable;
 use Psalm\Type\Union;
 
 /**
- * Declares, for one test file, the properties it assigns as `$this->name = ...` in `beforeEach()`
+ * Declares, for one test file, the properties it assigns as `$this->name = ...` (or as a target of a
+ * destructuring, `[$this->a, 'k' => $this->b] = ...`) in `beforeEach()`
  * closures on the TestCase `$this` is bound to ({@see ClosureThisHandler}). Declaring them on the
  * shared TestCase would leak one file's fixtures into every other file bound to it, so the property
  * existence / type / visibility providers answer from the state of the file being analysed and
@@ -67,7 +68,7 @@ use Psalm\Type\Union;
  */
 final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterface, AfterFileAnalysisInterface, BeforeFileAnalysisInterface
 {
-    /** @var array<int, string> start offset of each `$this->name = ...` (or write through an element of it) in a `beforeEach()` closure => name */
+    /** @var array<int, list<string>> start offset of each `$this->name = ...` (or write through an element of it) in a `beforeEach()` closure => name; a destructuring has one per property it targets */
     private static array $assignments = [];
 
     /** @var array<string, string> `start:end` offsets of the right operand of each `$this->name ??= ...` in a `beforeEach()` closure => name */
@@ -88,7 +89,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /** @var array<string, Union> the bound traits' declared properties: writes keep their type */
     private static array $declared = [];
 
-    /** @var list<array{array<int, string>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>, array<string, string>, array<string, bool>}> the including files' state */
+    /** @var list<array{array<int, list<string>>, array<string, true>, array<string, true>, array<string, Union>, array<string, Union>, array<string, list<string>>, array<string, string>, array<string, bool>}> the including files' state */
     private static array $outer = [];
 
     /** Asks for the providers on one bound TestCase; Psalm keeps them per class name. */
@@ -142,7 +143,8 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
     /**
      * Records the type of each `$this->name = <expr>` that sits directly in a `beforeEach()` closure,
      * of the right operand of each `$this->name ??= <expr>`, and of each write through an element of
-     * the property (`$this->name['a'] = ...`, `$this->name[] = ...`), which holds an array.
+     * the property (`$this->name['a'] = ...`, `$this->name[] = ...`), which holds an array, and of each
+     * `$this->name` a destructuring assigns (`[$this->a, $this->b] = ...`).
      */
     #[\Override]
     public static function afterExpressionAnalysis(AfterExpressionAnalysisEvent $event): ?bool
@@ -160,10 +162,21 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
             }
         }
 
-        $name = $expr instanceof Assign ? self::$assignments[$expr->getStartFilePos()] ?? null : null;
-        if (!$expr instanceof Assign || $name === null) {
+        $names = $expr instanceof Assign ? self::$assignments[$expr->getStartFilePos()] ?? null : null;
+        if (!$expr instanceof Assign || $names === null) {
             return null;
         }
+
+        if (UsesParser::isDestructuring($expr)) {
+            // Each target holds what the destructuring left on it, as in the plain assignment below.
+            foreach ($names as $target) {
+                self::record($target, self::widen($event->getContext()->vars_in_scope['$this->' . $target] ?? Type::getMixed(), $event->getCodebase()), $event->getCodebase());
+            }
+
+            return null;
+        }
+
+        $name = $names[0];
 
         if ($expr->var instanceof ArrayDimFetch) {
             if (isset(self::$seeded[$name])) {
@@ -255,7 +268,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
                     self::$coalesced[$assign->expr->getStartFilePos() . ':' . $assign->expr->getEndFilePos()] = $name;
                     $plain[$name] = true;
                 } else {
-                    self::$assignments[$assign->getStartFilePos()] = $name;
+                    self::$assignments[$assign->getStartFilePos()][] = $name;
                     if ($assign->var instanceof ArrayDimFetch) {
                         $elements[$name] = isset($elements[$name])
                             ? Type::combineUnionTypes($elements[$name], self::arrayWrittenThrough($assign->var), $codebase)
@@ -305,7 +318,7 @@ final class BeforeEachPropertiesHandler implements AfterExpressionAnalysisInterf
      */
     private static function declares(Codebase $codebase, string $testCase, string $name): bool
     {
-        return (isset(self::$types[$name]) || \in_array($name, self::$assignments, true) || \in_array($name, self::$coalesced, true))
+        return (isset(self::$types[$name]) || \in_array($name, \array_merge([], ...self::$assignments), true) || \in_array($name, self::$coalesced, true))
             && !isset(self::$statics['self::' . $name])
             && !isset(self::$statics['*::' . $name])
             && !isset(self::$statics[\strtolower($testCase) . '::' . $name])
