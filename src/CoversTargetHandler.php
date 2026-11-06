@@ -9,6 +9,7 @@ use PhpParser\Node\Scalar\String_;
 use Psalm\Codebase;
 use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Codebase\InternalCallMapHandler;
 use Psalm\IssueBuffer;
 use Psalm\Plugin\EventHandler\AfterMethodCallAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
@@ -48,8 +49,8 @@ final class CoversTargetHandler implements AfterMethodCallAnalysisInterface
             }
 
             $name = \ltrim($value->value, '\\');
-            if (($classlike && self::classLikeExists($codebase, $name))
-                || ($function && $name !== '' && $codebase->functions->functionExists($analyzer, \strtolower($name)))
+            if ($name !== ''
+                && (($classlike && self::classLikeExists($codebase, $name)) || ($function && self::functionExists($codebase, $analyzer, $name)))
             ) {
                 continue;
             }
@@ -74,5 +75,13 @@ final class CoversTargetHandler implements AfterMethodCallAnalysisInterface
         $file = $codebase->config->getComposerFilePathForClassLike($name);
 
         return \is_string($file) && \file_exists($file);
+    }
+
+    /** Like Psalm's call analysis: a function only the callmap or a stub knows (extension not loaded) still exists. */
+    private static function functionExists(Codebase $codebase, StatementsAnalyzer $analyzer, string $name): bool
+    {
+        return $codebase->functions->functionExists($analyzer, \strtolower($name))
+            || InternalCallMapHandler::inCallMap($name)
+            || $codebase->functions->hasStubbedFunction($name);
     }
 }

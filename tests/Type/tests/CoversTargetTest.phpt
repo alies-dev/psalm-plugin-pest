@@ -21,10 +21,16 @@ namespace {
 
     it('unknown ::class is Psalm\'s to report', function (): void {})->coversClass(\PestCoversFixture\Absent::class);
 
+    it('empty names', function (): void {})
+        ->coversClass('')
+        ->coversTrait('\\')
+        ->coversFunction('')
+        ->covers('');
+
     it('known targets', function (): void {})
         ->coversClass(Post::class, 'PestCoversFixture\Post', '\pestcoversfixture\POST', \stdClass::class, 'PHPUnit\Framework\Assert', 'Composer\Semver\VersionParser')
         ->coversTrait('PestCoversFixture\Loggable')
-        ->coversFunction('PestCoversFixture\helper', '\strlen', 'STRLEN')
+        ->coversFunction('PestCoversFixture\helper', '\strlen', 'STRLEN', 'xdebug_start_trace')
         ->covers(Post::class, 'PestCoversFixture\Loggable', 'PestCoversFixture\helper', 'strlen');
 
     function dynamic(string $name): void {
@@ -44,3 +50,7 @@ PestUnknownCoversTarget on line %d: No class, trait or function named "\PestCove
 PestUnknownCoversTarget on line %d: No class or trait named "PestCoversFixture\Missing2" exists.
 MixedArgument on line %d: Argument 1 of Pest\PendingCalls\TestCall::coversClass cannot be mixed, expecting string
 UndefinedClass on line %d: Class, interface or enum named PestCoversFixture\Absent does not exist
+PestUnknownCoversTarget on line %d: No class or trait named "" exists.
+PestUnknownCoversTarget on line %d: No class or trait named "\" exists.
+PestUnknownCoversTarget on line %d: No function named "" exists.
+PestUnknownCoversTarget on line %d: No class, trait or function named "" exists.
