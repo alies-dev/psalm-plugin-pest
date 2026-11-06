@@ -43,6 +43,10 @@ namespace {
 
     it('still binds a closure dataset', function (string $_name): void {})->with(fn (): array => [$this->user]);
 
+    describe('in a block', function (): void {
+        it('binds rows of describe()->with()', function (string $_name): void {});
+    })->with(['row' => fn (): string => $this->token]);
+
     // Rows deeper than Pest binds them are not bound.
     it('leaves deeper closures alone', function (string $_name): void {})->with([
         [[fn (): string => $this->token]],

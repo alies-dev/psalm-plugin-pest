@@ -85,7 +85,7 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
             }
         }
 
-        self::bindDatasetFunction($functions);
+        self::bindDatasetFunction($event->getCodebase());
     }
 
     /** @psalm-pure */
@@ -135,18 +135,38 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
     }
 
     /**
+     * `describe(...)->with([...])` replays `with()` on the `TestCall` of every test in the block.
+     *
+     * @param array<int, FunctionLikeParameter> $params the params of `TestCall::with()`
+     * @param list<Arg> $args
+     * @return array<int, FunctionLikeParameter>
+     */
+    public static function bindWith(Codebase $codebase, string $file, array $params, array $args): array
+    {
+        $type = BoundTestCase::thisType($codebase, $file);
+        if ($type instanceof Union) {
+            self::bindRows($type, \array_map(static fn(Arg $arg): Expr => $arg->value, $args));
+        }
+
+        return self::bind($codebase, $params, 0, $type, BoundTestCase::traits($codebase, $file));
+    }
+
+    /**
      * `dataset('x', [...])` carries no closure tag, so its rows are bound by this call-site provider alone.
      */
-    private static function bindDatasetFunction(Functions $functions): void
+    private static function bindDatasetFunction(Codebase $codebase): void
     {
+        $functions = $codebase->functions;
         if (!$functions->hasStubbedFunction('dataset')) {
             return;
         }
 
         $storage = $functions->getStorage(null, 'dataset');
         $params = $storage->params;
-        $declaredIn = \str_replace('\\', '/', $storage->location->file_path ?? '');
-        if (!\str_ends_with($declaredIn, '/src/Functions.php')
+        // Pest's `src/Functions.php` sits next to `src/PendingCalls/`; another autoloaded `dataset()` is not Pest's.
+        $testCall = BoundTestCase::storage($codebase, PestApi::TEST_CALL)?->location?->file_path;
+        if ($testCall === null
+            || $storage->location?->file_path !== \dirname($testCall, 2) . \DIRECTORY_SEPARATOR . 'Functions.php'
             || \array_map(static fn(FunctionLikeParameter $param): string => $param->name, $params) !== ['name', 'dataset']
         ) {
             return;
@@ -166,7 +186,8 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                     }
                 }
 
-                if ($type instanceof Union && $dataset instanceof Arg) {
+                // A dataset file the TestCase is not declared for gets PHPUnit's fallback, while Pest binds the consuming test.
+                if ($type instanceof Union && $type->getId() !== TestCaseResolver::DEFAULT_TEST_CASE && $dataset instanceof Arg) {
                     // Only for the side effects of binding; the closure parameter itself stays unbound.
                     self::bind($codebase, $params, 1, $type, BoundTestCase::traits($codebase, $file));
                     self::bindRows($type, [$dataset->value]);
