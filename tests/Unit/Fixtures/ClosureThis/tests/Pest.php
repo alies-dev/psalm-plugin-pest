@@ -18,3 +18,6 @@ pest()
         $this->maybe = null;
     })
     ->in('Feature');
+
+// Declared in the boot file: shared like a Datasets.php, so with only the fallback TestCase its rows stay unbound.
+dataset('boot rows', ['row' => fn(): mixed => $this->bootOnly]);

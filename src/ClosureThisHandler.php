@@ -186,8 +186,8 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
                     }
                 }
 
-                // Pest binds a shared dataset (`Datasets.php`, `Datasets/`) to the test that consumes it, not to its own file's fallback TestCase.
-                $shared = TestCaseResolver::isSharedDatasetFile(BoundTestCase::testsDir($codebase), $file);
+                // Pest binds a shared dataset (`Datasets.php`, `Datasets/`, `Pest.php`) to the test that consumes it, not to its own file's fallback TestCase.
+                $shared = TestCaseResolver::declaresSharedDatasets(BoundTestCase::testsDir($codebase), $file);
                 if ($type instanceof Union && (!$shared || $type->getId() !== TestCaseResolver::DEFAULT_TEST_CASE) && $dataset instanceof Arg) {
                     // Only for the side effects of binding; the closure parameter itself stays unbound.
                     self::bind($codebase, $params, 1, $type, BoundTestCase::traits($codebase, $file));

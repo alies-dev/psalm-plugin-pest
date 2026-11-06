@@ -79,6 +79,12 @@ final class TestCaseResolver
         return \basename($file) === self::DATASETS . '.php' || \in_array(self::DATASETS, $relativeDirs, true);
     }
 
+    /** A dataset declared here is also consumed by other files: a shared dataset file, or `Pest.php` (`DatasetInfo::scope()` gives it its directory). */
+    public static function declaresSharedDatasets(string $testsDir, string $file): bool
+    {
+        return $file === $testsDir . \DIRECTORY_SEPARATOR . 'Pest.php' || self::isSharedDatasetFile($testsDir, $file);
+    }
+
     /**
      * @param \Closure(string): ?bool $isClass
      * @return TestCaseBinding|null
