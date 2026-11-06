@@ -31,7 +31,9 @@ namespace {
     })->with(fn() => [$this->number()]);
 
     // Pest runs an after() closure on the running TestCase, on a test and on a beforeEach() inside describe().
-    test('after closures are bound', fn () => null)->after(function (): void {
+    test('after closures are bound', function (): void {
+        expect(true)->toBeTrue();
+    })->after(function (): void {
         /** @psalm-check-type-exact $this = PestClosureMethodsFixture\TestCase */
         $this->counter = 1;
     });

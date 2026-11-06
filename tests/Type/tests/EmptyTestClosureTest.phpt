@@ -38,6 +38,13 @@ namespace {
     it('todo in the middle', function (): void {})->todo()->group('a');
     it('skipped', function (): void {})->skip();
     it('skipped on a platform', function (): void {})->skipOnWindows();
+    it('skipped conditionally', function (): void {})->skip(false);
+    it('only on windows', function (): void {})->onlyOnWindows();
+    it('only on mac', function (): void {})->onlyOnMac();
+    it('only on linux', function (): void {})->onlyOnLinux();
+    it('expects no assertions', function (): void {})->throwsNoExceptions();
+    it('reported once when static', static function (): void {});
+    it('only', function (): void {})->only();
     todo('registers users');
     it('arrow', fn () => null);
     it('has a body', function (): void {
@@ -54,11 +61,13 @@ namespace {
 }
 ?>
 --EXPECTF--
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to test() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
-PestEmptyTestClosure on line %d: The closure passed to it() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to test() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().
+PestStaticTestClosure on line %d: Pest cannot bind $this to a static closure and aborts the run when it() receives one; remove the `static` keyword.
+PestEmptyTestClosure on line %d: The closure passed to it() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().

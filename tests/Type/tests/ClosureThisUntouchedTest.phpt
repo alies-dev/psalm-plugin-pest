@@ -28,7 +28,8 @@ namespace {
     uses(PestUntouchedFixture\TestCase::class);
 
     // Static closures are never rebound (Pest rejects them at runtime).
-    test('static closure', static fn () => null);
+    test('static closure', static function (): void {
+    });
 }
 ?>
 --EXPECTF--

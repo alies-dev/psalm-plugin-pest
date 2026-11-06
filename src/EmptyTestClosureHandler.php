@@ -18,12 +18,16 @@ use Psalm\Plugin\EventHandler\AfterStatementAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterStatementAnalysisEvent;
 
 /**
- * Reports an `it()` / `test()` whose closure has no statements (comments do not count): the test runs,
- * and PHPUnit marks it risky for performing no assertions. Arrow functions always return a value, so they
- * are never empty.
+ * Reports an `it()` / `test()` whose closure has no statements (comments do not count): the test looks
+ * written but checks nothing of its own. Arrow functions are out of scope by design, and a `static` closure
+ * is left to {@see StaticTestClosureHandler}, which already reports it.
  *
- * A chain with `->todo()` is a deliberate placeholder. A chain with `->skip*()` never runs the closure, so
- * the risky warning never fires; both are left alone, `skip` being the one case Pest's PHPStan rule reports.
+ * Chains that mark the emptiness as deliberate are left alone: `->todo()` (a placeholder),
+ * `->throwsNoExceptions()` (the test expects to perform no assertions), and every `->skip*()` /
+ * `->onlyOn*()` (a parked test). Only an unconditional `skip()` keeps the closure from running;
+ * `skip(false)`, `skip($callable)`, `skipOnWindows()`, `onlyOnLinux()` and the like still run it on some
+ * hosts, so those empty tests are a known false negative.
+ *
  * Tests inside `describe()` are reached the same way, as Psalm analyses the closure body statement by statement.
  */
 final class EmptyTestClosureHandler implements AfterStatementAnalysisInterface
@@ -42,7 +46,11 @@ final class EmptyTestClosureHandler implements AfterStatementAnalysisInterface
         $call = $stmt->expr;
         while ($call instanceof MethodCall) {
             $method = $call->name instanceof Identifier ? $call->name->toLowerString() : '';
-            if (($method === 'todo' || \str_starts_with($method, 'skip')) && !$call->isFirstClassCallable()) {
+            $deliberate = $method === 'todo'
+                || $method === 'throwsnoexceptions'
+                || \str_starts_with($method, 'skip')
+                || \str_starts_with($method, 'onlyon');
+            if ($deliberate && !$call->isFirstClassCallable()) {
                 return null;
             }
 
@@ -61,24 +69,37 @@ final class EmptyTestClosureHandler implements AfterStatementAnalysisInterface
             \in_array($name, self::FUNCTIONS, true) && !$functions->functionExists($source, $id) => $name,
             default => null,
         };
-        $returns = $function !== null && $functions->hasStubbedFunction($function)
-            ? $functions->getStorage(null, $function)->signature_return_type?->getAtomicTypes()
-            : null;
-        if (!isset($returns[PestApi::TEST_CALL])) {
+        if ($function === null || !$functions->hasStubbedFunction($function)) {
             return null;
         }
 
-        foreach ($call->getArgs() as $index => $arg) {
-            if (($arg->name === null ? $index === 1 : $arg->name->name === 'closure')
-                && $arg->value instanceof Closure
-                && \array_filter($arg->value->stmts, static fn(Stmt $inner): bool => !$inner instanceof Stmt\Nop) === []
-            ) {
-                $message = "The closure passed to {$function}() is empty, so PHPUnit marks the test risky for performing no assertions; add assertions or mark the test ->todo().";
-                IssueBuffer::maybeAdd(
-                    new PestEmptyTestClosure($message, new CodeLocation($source, $arg->value)),
-                    $event->getStatementsSource()->getSuppressedIssues(),
-                );
+        $storage = $functions->getStorage(null, $function);
+        if (!isset($storage->signature_return_type?->getAtomicTypes()[PestApi::TEST_CALL])) {
+            return null;
+        }
+
+        foreach ($storage->params as $offset => $param) {
+            if ($param->closure_this_type?->getId() !== PestApi::TEST_CALL) {
+                continue;
             }
+
+            foreach ($call->getArgs() as $index => $arg) {
+                if (($arg->name === null ? $index === $offset : $arg->name->name === $param->name)
+                    && $arg->value instanceof Closure
+                    && !$arg->value->static
+                    && \array_filter($arg->value->stmts, static fn(Stmt $inner): bool => !$inner instanceof Stmt\Nop) === []
+                ) {
+                    IssueBuffer::maybeAdd(
+                        new PestEmptyTestClosure(
+                            "The closure passed to {$function}() is empty, so the test checks nothing of its own; add assertions or mark it ->todo().",
+                            new CodeLocation($source, $arg->value),
+                        ),
+                        $event->getStatementsSource()->getSuppressedIssues(),
+                    );
+                }
+            }
+
+            break;
         }
 
         return null;
