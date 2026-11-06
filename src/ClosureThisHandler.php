@@ -27,7 +27,7 @@ use Psalm\Type\Union;
 
 /**
  * Binds `$this` in the closures Pest runs on the TestCase: `test()` / `it()` / `beforeEach()` /
- * `afterEach()`, `TestCall::with()` datasets, the hooks of a `uses()` / `pest()` chain and the
+ * `afterEach()`, `TestCall::with()` datasets and `after()` closures, the hooks of a `uses()` / `pest()` chain and the
  * `->and()` of a higher-order `it('x')->expect(1)->and(fn () => $this->x)` chain.
  *
  * Pest tags them `@param-closure-this TestCall`, whose `@mixin` union Psalm does not honor; the
@@ -44,7 +44,8 @@ final class ClosureThisHandler implements AfterCodebasePopulatedInterface, Befor
 
     /** Pest methods whose first parameter is a closure that runs on the TestCase. */
     private const METHODS = [
-        PestApi::TEST_CALL => ['with'],
+        PestApi::TEST_CALL => ['with', 'after'],
+        PestApi::BEFORE_EACH_CALL => ['after'],
         PestApi::USES_CALL => ['beforeeach', 'aftereach'],
         PestApi::EXPECTATION => ['and'],
     ];

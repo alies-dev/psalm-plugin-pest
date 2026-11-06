@@ -30,9 +30,25 @@ namespace {
         yield $this->number();
     })->with(fn() => [$this->number()]);
 
+    // Pest runs an after() closure on the running TestCase, on a test and on a beforeEach() inside describe().
+    test('after closures are bound', function (): void {})->after(function (): void {
+        /** @psalm-check-type-exact $this = PestClosureMethodsFixture\TestCase */
+        $this->counter = 1;
+    });
+    describe('after on a hook', function (): void {
+        beforeEach(function (): void {})->after(function (): void {
+            /** @psalm-check-type-exact $this = PestClosureMethodsFixture\TestCase */
+            $this->counter = 1;
+        });
+    });
+
+    // Other closures stay unbound: Pest binds a skip() condition to null.
+    test('skip stays unbound', function (): void {})->skip(fn (): mixed => $this->counter);
+
     // Arguments are still checked.
     uses(PestClosureMethodsFixture\TestCase::class)->beforeEach('not a closure');
 }
 ?>
 --EXPECTF--
+InvalidScope on line %d: Invalid reference to $this in a non-class context
 InvalidArgument on line %d: Argument 1 of Pest\PendingCalls\UsesCall::beforeEach expects Closure%S, but 'not a closure' provided
