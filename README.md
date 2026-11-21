@@ -21,7 +21,7 @@ This plugin teaches Psalm how [Pest](https://pestphp.com) really works. Keep you
 
 ## Install
 
-Requires Psalm 7 and Pest 4 or 5.
+Requires Psalm 7.15+ and Pest 4 or 5.
 
 ```bash
 composer require --dev alies-dev/psalm-plugin-pest
