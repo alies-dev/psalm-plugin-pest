@@ -623,7 +623,11 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
         ClassLikeStorage $assertions,
         ClassLikeStorage $expectation,
     ): void {
-        $returnType = self::generic($result, ...self::templateArguments($proxy));
+        // `phpVersion` below 8.2 cannot parse `final readonly class OppositeExpectation` (Pest 4 and 5): Psalm drops
+        // the ParseError for vendor files and keeps a storage without the docblock, so there is no template to carry.
+        $returnType = $proxy->template_types === null
+            ? self::generic($result, Type::getMixed())
+            : self::generic($result, ...self::templateArguments($proxy));
 
         foreach ($assertions->methods as $name => $assertion) {
             // Public only (`export()` is not an assertion); every proxy declares `__construct()` itself.
