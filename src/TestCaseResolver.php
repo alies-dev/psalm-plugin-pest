@@ -42,7 +42,7 @@ final class TestCaseResolver
      */
     public static function resolve(string $testsDir, string $testFile, string $testContents, \Closure $isClass): ?array
     {
-        $hash = \md5($testContents);
+        $hash = \hash('xxh3', $testContents);
         if (($cached = self::$resolved[$testFile] ?? null) !== null && $cached[0] === $hash) {
             return $cached[1];
         }

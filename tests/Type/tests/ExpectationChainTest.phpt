@@ -40,7 +40,8 @@ namespace PestExpectationChainFixture {
         expect($ids)->toBeArray()->not->toBeEmpty();
         expect($name)->toContain('a')->not->toContain('b');
         expect($name)->toBeString()->each->toBeString();
-        expect($ids)->each->not->toBeNull()->toBeInt();
+        $_eachNot = expect($ids)->each->not->toBeNull()->toBeInt();
+        /** @psalm-check-type-exact $_eachNot = \Pest\Expectations\EachExpectation<list<int>> */
 
         // Any other name is a higher-order expectation over the value's member.
         $_member = expect($tile)->formatId;

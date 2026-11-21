@@ -19,7 +19,7 @@ namespace {
         beforeAll(function (): void {});
         afterAll(function (): void {});
 
-        if (PHP_VERSION_ID > 0) {
+        if (\getenv('CI') !== false) {
             beforeAll(function (): void {});
         }
 

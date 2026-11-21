@@ -44,8 +44,6 @@ namespace {
         }
 
         it('every literal', function (): void {})->repeat($both);
-        // Psalm rejects binding a list<int> spread to `int $times`; the spread is never read as the count.
-        /** @psalm-suppress InvalidScalarArgument */
         it('after unpack', function (): void {})->repeat(...$args, times: 0);
 
         describe('group', function (): void {})->repeat(0);

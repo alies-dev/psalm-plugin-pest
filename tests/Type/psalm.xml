@@ -13,7 +13,9 @@
     xsi:schemaLocation="https://getpsalm.org/schema/config ../../vendor/vimeo/psalm/config.xsd"
 >
     <!-- Pest itself is a dev dependency: its src/Functions.php is a Composer autoload file, so
-         Psalm scans the real test()/it()/uses()/pest() declarations and the real DSL classes. -->
+         Psalm scans the real test()/it()/uses()/pest() declarations and the real DSL classes.
+         The composer.json next to this file requires Pest: Psalm 7 skips the functions of packages
+         the config directory's project doesn't require. -->
     <plugins>
         <pluginClass class="AliesDev\PsalmPluginPest\Plugin" />
     </plugins>

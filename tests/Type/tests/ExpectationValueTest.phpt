@@ -123,5 +123,5 @@ UndefinedMagicMethod on line %d: Magic method PestExpectationValueFixture\User::
 UndefinedMagicMethod on line %d: Magic method string::tobeintt does not exist
 InvalidScalarArgument on line %d: Argument 1 of Pest\Expectation::add expects int, but 'x' provided
 TooFewArguments on line %d: Too few arguments for Pest\Expectation::add - expecting _n to be passed
-MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue:fn-expect as mixed
 UndefinedMagicMethod on line %d: Magic method PestExpectationValueFixture\Magic::unknownmethod does not exist

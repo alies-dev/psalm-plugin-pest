@@ -222,17 +222,18 @@ PestImpossibleExpectation on line %d: Pest's toBeFloat() is a strict type check 
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for float; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for int|string; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Circle; assert the type the value has or remove the assertion.
+PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Sealed; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for string; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for PestImpossibleExpectationFixture\User|null; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for string; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInt() is a strict type check that always fails for string; assert the type the value has or remove the assertion.
-MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue:fn-expect as mixed
 UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
-MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue:fn-expect as mixed
 UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
-MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue:fn-expect as mixed
 UndefinedInterfaceMethod on line %d: Method Countable::total does not exist
-MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue
+MixedArgument on line %d: Argument 1 of expect cannot be mixed, expecting TValue:fn-expect as mixed
 PestImpossibleExpectation on line %d: Pest's toBeString() is a strict type check that always fails for int; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeInstanceOf() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket&static; assert the type the value has or remove the assertion.
 PestImpossibleExpectation on line %d: Pest's toBeNull() is a strict type check that always fails for PestImpossibleExpectationFixture\Basket&static; assert the type the value has or remove the assertion.

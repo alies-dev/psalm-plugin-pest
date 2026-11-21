@@ -75,8 +75,8 @@ use Psalm\Type\Union;
  * Runs after {@see InternalDslHandler}, so the cloned methods carry no `@internal` marker. Expectations registered with
  * `expect()->extend()` are invisible to a scan; {@see CustomExpectations} reads them from the boot files and the analysed
  * file, and they run on the expectation, `->not`, `->each` and a higher-order member like Pest's own assertions.
- * Known limit: `->not` / `->each` read through a proxy resolve from the `Expectation` mixin (which wins over the proxy's
- * own pseudo properties), so the value type is not tracked there.
+ * Known limit: on older Psalm 7 releases, where a mixin's `@property` wins over the class's own, `->not` / `->each` read
+ * through a proxy resolve from the `Expectation` mixin, so the value type is not tracked there.
  */
 final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface, BeforeFileAnalysisInterface, MethodExistenceProviderInterface
 {
@@ -119,6 +119,7 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
 
         self::returnOuterExpectation($assertions);
         self::carryValueTypeIntoProxyProperties($expectation);
+        self::negateEachInPlace($storages[PestApi::EACH_EXPECTATION]);
         self::typeIterationCallbacks($expectation);
         self::acceptTypedExceptionClosure($assertions);
 
@@ -600,6 +601,16 @@ final class ExpectationHandler implements AfterCodebasePopulatedInterface, After
                 $expectation->pseudo_property_get_types[$property] = self::generic($atomic->value, ...$arguments);
             }
         }
+    }
+
+    /**
+     * `->each->not` stays the `EachExpectation` (its `__get()` runs `not()`, which returns `self<TValue>`), so the
+     * assertions after it run on every item. Without this the `Expectation` mixin's `$not` would make it an
+     * `OppositeExpectation` of the whole iterable.
+     */
+    private static function negateEachInPlace(ClassLikeStorage $each): void
+    {
+        $each->pseudo_property_get_types['$not'] = self::generic(PestApi::EACH_EXPECTATION, ...self::templateArguments($each));
     }
 
     /**

@@ -33,5 +33,6 @@ if (Pest\Support\Str::startsWith('pest', 'p')) {
 ?>
 --EXPECTF--
 InternalMethod on line %d: The method Pest\Arch\Contracts\ArchExpectation::excludeCallbacks is internal to Pest but called from root namespace
-InternalProperty on line %d: Pest\Configuration\Project::$assignees is internal to Pest but called from ProjectReader
+InternalProperty on line %d: Pest\Configuration\Project::$assignees is internal to Pest but called from ProjectReader::assignees
+InternalClass on line %d: Pest\Support\Str is internal to Pest but called from root namespace
 InternalMethod on line %d: The method Pest\Support\Str::startsWith is internal to Pest but called from root namespace

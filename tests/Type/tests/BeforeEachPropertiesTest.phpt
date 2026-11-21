@@ -341,7 +341,7 @@ namespace {
 ?>
 --EXPECTF--
 InvalidScope on line %d: Invalid reference to $this in a non-class context
-MixedMethodCall on line %d: Cannot determine the type of $__tmp_nullsafe__%d when calling method parse
+MixedMethodCall on line %d: Cannot determine the type of $this->server when calling method parse
 PossiblyNullArgument on line %d: Argument 1 of rmdir cannot be null, possibly null value provided
 PossiblyNullReference on line %d: Cannot call method parse on possibly null value
 UndefinedThisPropertyFetch on line %d: Instance property PestBeforeEachFixture\TestCase::$nope is not defined

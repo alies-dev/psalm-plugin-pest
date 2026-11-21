@@ -104,7 +104,7 @@ final class CustomExpectations implements BeforeFileAnalysisInterface
     /** @return array<string, string|null> closure id (null: not a closure literal) per name */
     private static function declaredIn(string $path, string $contents): array
     {
-        $hash = \md5($contents);
+        $hash = \hash('xxh3', $contents);
         if ((self::$parsed[$path][0] ?? null) === $hash) {
             return self::$parsed[$path][1];
         }

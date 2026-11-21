@@ -334,7 +334,7 @@ final class ExpectNarrowingHandler implements AfterExpressionAnalysisInterface
 
         $parent = $source->getSource();
         if (
-            !$context->collect_initializations && !$context->collect_mutations
+            !$context->collect_initializations
             && $source->getFilePath() === $source->getRootFilePath()
             && (!$parent instanceof FunctionLikeAnalyzer || !$parent->getSource() instanceof TraitAnalyzer)
         ) {
