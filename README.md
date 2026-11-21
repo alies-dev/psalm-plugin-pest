@@ -13,6 +13,8 @@
   <a href="https://packagist.org/packages/alies-dev/psalm-plugin-pest"><img src="https://img.shields.io/packagist/v/alies-dev/psalm-plugin-pest" alt="Latest version"></a>
   <a href="https://packagist.org/packages/alies-dev/psalm-plugin-pest"><img src="https://img.shields.io/packagist/dt/alies-dev/psalm-plugin-pest" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/packagist/l/alies-dev/psalm-plugin-pest" alt="License"></a>
+  <a href="https://shepherd.dev/github/alies-dev/psalm-plugin-pest"><img src="https://shepherd.dev/github/alies-dev/psalm-plugin-pest/coverage.svg" alt="Psalm type coverage"></a>
+  <a href="https://shepherd.dev/github/alies-dev/psalm-plugin-pest"><img src="https://shepherd.dev/github/alies-dev/psalm-plugin-pest/level.svg" alt="Psalm level"></a>
 </p>
 
 This plugin teaches Psalm how [Pest](https://pestphp.com) really works. Keep your tests in the analysis, get real types and catch broken tests before you run them.

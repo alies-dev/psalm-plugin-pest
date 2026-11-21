@@ -62,6 +62,9 @@ jobs:
         run: composer test:type
 
       - name: Psalm self-analysis
+        env:
+          # Report to shepherd.dev (README badges) from one matrix entry only.
+          PSALM_SHEPHERD: ${{ matrix.php == '8.5' && matrix.pest == '^5.0' && '1' || '' }}
         run: vendor/bin/psalm --no-cache --no-progress
 
   style:
