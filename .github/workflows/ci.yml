@@ -18,18 +18,25 @@ permissions:
 
 jobs:
   tests:
-    name: PHP ${{ matrix.php }} | Pest ${{ matrix.pest }}
+    name: PHP ${{ matrix.php }} | Pest ${{ matrix.pest }} | ${{ matrix.dependencies }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # Lowest and highest supported PHP only; 8.4 adds runner time, not coverage.
-        php: ['8.3', '8.5']
-        pest: ['^4.0', '^5.0']
-        exclude:
-          # Pest 5 requires PHP 8.4.
-          - php: '8.3'
-            pest: '^5.0'
+        include:
+          # Highest: the lowest and highest supported PHP only; 8.4 adds runner time, not coverage. Pest 5 requires PHP 8.4.
+          - { php: '8.3', pest: '^4.5', dependencies: highest }
+          - { php: '8.5', pest: '^4.5', dependencies: highest }
+          - { php: '8.5', pest: '^5.1', dependencies: highest, shepherd: true }
+          # Lowest: the declared minimums, each on the lowest PHP its Pest major runs on. The lowest releases of some of
+          # Psalm's own dependencies emit PHP 8.4 deprecations, which Psalm turns into crashes: `floors` lifts just those.
+          - { php: '8.3', pest: '^4.5', dependencies: lowest }
+          - php: '8.4'
+            pest: '^5.1'
+            dependencies: lowest
+            floors: >-
+              amphp/cache:>=2.0.1 amphp/dns:>=2.1.2 amphp/parser:>=1.1.1 amphp/process:>=2.0.3 amphp/socket:>=2.3.1
+              daverandom/libdns:>=2.1.0 spatie/array-to-xml:>=3.3.0
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -51,9 +58,13 @@ jobs:
       - name: Install dependencies
         env:
           PEST_VERSION: ${{ matrix.pest }}
-        run: >-
-          composer update --with="pestphp/pest:$PEST_VERSION"
-          --with-all-dependencies --no-interaction --no-progress --prefer-dist
+          DEPENDENCIES: ${{ matrix.dependencies }}
+          FLOORS: ${{ matrix.floors }}
+        run: |
+          args=(--with="pestphp/pest:$PEST_VERSION")
+          if [ "$DEPENDENCIES" = lowest ]; then args+=(--prefer-lowest); fi
+          for floor in $FLOORS; do args+=("--with=$floor"); done
+          composer update "${args[@]}" --with-all-dependencies --no-interaction --no-progress --prefer-dist
 
       - name: Unit tests
         run: composer test:unit
@@ -64,7 +75,7 @@ jobs:
       - name: Psalm self-analysis
         env:
           # Report to shepherd.dev (README badges) from one matrix entry only.
-          PSALM_SHEPHERD: ${{ matrix.php == '8.5' && matrix.pest == '^5.0' && '1' || '' }}
+          PSALM_SHEPHERD: ${{ matrix.shepherd && '1' || '' }}
         run: vendor/bin/psalm --no-cache --no-progress
 
   style:
