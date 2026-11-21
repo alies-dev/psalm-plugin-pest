@@ -17,6 +17,7 @@ final class Plugin implements PluginEntryPointInterface
     /** Registration order is hook order where two handlers share an event. */
     private const HANDLERS = [
         InternalDslHandler::class,
+        TestSuiteInternalHandler::class,
         ExpectationHandler::class,
         BrowserHandler::class,
         ClosureThisHandler::class,
@@ -44,6 +45,7 @@ final class Plugin implements PluginEntryPointInterface
         TestCaseResolver::reset();
         BootFileFunctionsHandler::reset();
         CustomExpectations::reset();
+        TestSuiteInternalHandler::reset();
 
         foreach (self::HANDLERS as $handler) {
             // registerHooksFromClass() checks class_exists($handler, false) and never autoloads.

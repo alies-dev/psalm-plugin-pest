@@ -1,0 +1,9 @@
+{
+    "require-dev": {
+        "pestphp/pest": "*",
+        "phpunit/phpunit": "*"
+    },
+    "config": {
+        "vendor-dir": "../../../../vendor"
+    }
+}
