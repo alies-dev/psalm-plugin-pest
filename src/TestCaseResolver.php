@@ -68,7 +68,13 @@ final class TestCaseResolver
     {
         $files = self::bootFilePaths($testsDir);
 
-        return $files !== null && self::targets([UsesParser::realpath($testsDir)], UsesParser::realpath($testFile)) ? $files : [];
+        return $files !== null && self::inTestsDir($testsDir, $testFile) ? $files : [];
+    }
+
+    /** Whether `$testFile` is in the directory Pest runs. */
+    public static function inTestsDir(string $testsDir, string $testFile): bool
+    {
+        return self::targets([UsesParser::realpath($testsDir)], UsesParser::realpath($testFile));
     }
 
     /**
