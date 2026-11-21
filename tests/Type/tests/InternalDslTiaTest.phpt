@@ -1,8 +1,8 @@
 --SKIPIF--
 <?php
-// pest()->tia() exists since Pest 5.
+// pest()->tia() exists since Pest 4.7.
 if (!is_file(getcwd() . '/vendor/pestphp/pest/src/Plugins/Tia/Configuration.php')) {
-    echo 'skip Pest 5 only';
+    echo 'skip Pest without TIA';
 }
 ?>
 --FILE--
@@ -10,7 +10,7 @@ if (!is_file(getcwd() . '/vendor/pestphp/pest/src/Plugins/Tia/Configuration.php'
 
 // Pest marks Pest\Plugins\Tia\Configuration @internal, yet pest()->tia() is its documented test impact analysis setup.
 pest()->tia()->always();
-pest()->tia()->directory('storage/tia')->locally();
+pest()->tia()->filtered()->locally();
 pest()->tia()->baselined();
 pest()->tia()->watch(['src/**' => 'tests']);
 ?>
