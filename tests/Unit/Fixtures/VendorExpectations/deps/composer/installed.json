@@ -1,0 +1,35 @@
+{
+    "packages": [
+        {
+            "name": "pestphp/pest",
+            "version": "dev-main",
+            "install-path": "../../../../../../vendor/pestphp/pest",
+            "require": {}
+        },
+        {
+            "name": "acme/pest-snapshots",
+            "version": "1.0.0",
+            "install-path": "../acme/pest-snapshots",
+            "require": {
+                "pestphp/pest": "*"
+            },
+            "autoload": {
+                "files": [
+                    "src/Functions.php"
+                ]
+            }
+        },
+        {
+            "name": "acme/plain",
+            "version": "1.0.0",
+            "install-path": "../acme/plain",
+            "require": {},
+            "autoload": {
+                "files": [
+                    "src/functions.php"
+                ]
+            }
+        }
+    ],
+    "dev": true
+}

@@ -73,8 +73,8 @@ use Psalm\Type\Union;
  * expectation of the narrowed value and a forwarded member as the value's property or method return type.
  *
  * Runs after {@see InternalDslHandler}, so the cloned methods carry no `@internal` marker. Expectations registered with
- * `expect()->extend()` are invisible to a scan; {@see CustomExpectations} reads them from the boot files and the analysed
- * file, and they run on the expectation, `->not`, `->each` and a higher-order member like Pest's own assertions.
+ * `expect()->extend()` are invisible to a scan; {@see CustomExpectations} reads them from the boot files, the analysed
+ * file and the Composer `files` autoloads of the installed packages, and they run on the expectation, `->not`, `->each` and a higher-order member like Pest's own assertions.
  */
 final class ExpectationHandler implements AfterCodebasePopulatedInterface, AfterExpressionAnalysisInterface, BeforeExpressionAnalysisInterface, BeforeFileAnalysisInterface, MethodExistenceProviderInterface
 {

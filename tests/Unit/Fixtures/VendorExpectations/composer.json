@@ -1,0 +1,10 @@
+{
+    "require-dev": {
+        "pestphp/pest": "*",
+        "acme/pest-snapshots": "*",
+        "acme/plain": "*"
+    },
+    "config": {
+        "vendor-dir": "deps"
+    }
+}
